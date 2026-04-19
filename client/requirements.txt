@@ -1,0 +1,6 @@
+carla==0.9.16
+numpy
+opencv-python-headless
+matplotlib
+pygame
+flask

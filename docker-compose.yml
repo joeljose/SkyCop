@@ -1,0 +1,54 @@
+services:
+  carla-server:
+    image: carlasim/carla:0.9.16
+    runtime: nvidia
+    ports:
+      - "${CARLA_PORT:-2000}:2000"
+      - "${CARLA_STREAMING_PORT:-2001}:2001"
+      - "${CARLA_TM_PORT:-8000}:8000"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    # Off-screen Vulkan rendering (only renderer available in 0.9.12+)
+    # -benchmark -fps locks server tick rate for reproducibility
+    command: >-
+      /bin/bash CarlaUE4.sh
+      -RenderOffScreen
+      -nosound
+      -carla-port=2000
+      -quality-level=${CARLA_QUALITY:-Low}
+      -benchmark
+      -fps=${CARLA_FPS:-20}
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',2000)); s.close()\" 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    runtime: nvidia
+    user: "${CARLA_UID:-1000}:${CARLA_GID:-1000}"
+    volumes:
+      - ./client:/app
+      - ./scripts:/app/scripts
+      - ./output:/app/output
+      - ./.client-cache:/home/carla
+    working_dir: /app
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - HOME=/home/carla
+      - CARLA_HOST=carla-server
+      - CARLA_PORT=2000
+    depends_on:
+      carla-server:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    command: ["tail", "-f", "/dev/null"]
+    stdin_open: true
+    tty: true
