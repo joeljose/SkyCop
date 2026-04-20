@@ -1,5 +1,5 @@
 """
-Lesson 02 — Drone View
+Experiment 02 — Drone View
 
 Fly around the CARLA world as a drone controlled from your browser.
 Open http://localhost:5000 to see the live camera feed and use keyboard to move.
@@ -54,7 +54,7 @@ def update_keys():
 HTML_PAGE = """<!DOCTYPE html>
 <html>
 <head>
-<title>SkyCop — Lesson 02 · Drone View</title>
+<title>SkyCop — Experiment 02 · Drone View</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #111; color: #eee; font-family: monospace; overflow: hidden; }
@@ -287,7 +287,7 @@ def carla_loop(server: MJPEGServer):
 
 
 def main():
-    server = MJPEGServer(title="SkyCop — Lesson 02", html=HTML_PAGE)
+    server = MJPEGServer(title="SkyCop — Experiment 02", html=HTML_PAGE)
     # Add keyboard input route on the same Flask app.
     server.app.add_url_rule("/keys", "update_keys", update_keys, methods=["POST"])
     server.start(port=5000)

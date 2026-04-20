@@ -28,7 +28,7 @@ Companion to `docs/REQUIREMENTS.md`. Requirements answer *what* the system does;
 
 **Design goals**
 - **Reproducibility.** Anyone with Docker + an NVIDIA GPU should run `make setup && make up && make exp N=04` and get the same behaviour. Seeded RNGs, pinned deps, bind-mounted source, no host installs.
-- **Teachability.** The repo reads top-to-bottom: `docs/REQUIREMENTS.md` explains the mission, `docs/design.md` (this file) explains the architecture, `scripts/NN_*.py` are progressively richer lessons, `skycop/` is the library those lessons compose. A senior reviewer should be able to skim and understand the whole in ~15 minutes.
+- **Teachability.** The repo reads top-to-bottom: `docs/REQUIREMENTS.md` explains the mission, `docs/design.md` (this file) explains the architecture, `scripts/NN_*.py` are progressively richer experiments, `skycop/` is the library those experiments compose. A senior reviewer should be able to skim and understand the whole in ~15 minutes.
 - **Hot iteration.** Edits on the host must be live inside the container without a rebuild. CARLA loop times are 30–60 s per cold start; adding a rebuild step on top is unacceptable for research-y work.
 - **Scale-ready, not scaled.** The architecture should accommodate the full requirement set (CV pipeline, dashboard, scoring) without demanding it up front. No YAGNI abstractions.
 
@@ -58,7 +58,7 @@ SkyCop/
 ├── configs/                # yaml config files loaded by skycop.config.load(...)
 │   ├── default.yaml        # scene + carla + camera defaults
 │   └── altitude.yaml       # altitude controller thresholds
-├── scripts/                # lessons (01_hello_world, 02_drone_view, ...)
+├── scripts/                # experiments (01_hello_world, 02_drone_view, ...)
 ├── tests/                  # pytest — pure logic only; no CARLA in CI-style paths
 ├── docs/
 │   ├── REQUIREMENTS.md     # what the system does
@@ -129,7 +129,7 @@ Future additions: `control.pid` (SIM-15..18), `control.safety` (depth raycast + 
 
 ### `skycop.dashboard`
 
-- `MJPEGServer(title, hud, html=None)` — Flask streamer, daemon-threaded. `.push(frame)` from the CARLA loop, `.app` exposed for scripts that want to attach extra routes (e.g. lesson 02's keyboard capture).
+- `MJPEGServer(title, hud, html=None)` — Flask streamer, daemon-threaded. `.push(frame)` from the CARLA loop, `.app` exposed for scripts that want to attach extra routes (e.g. experiment 02's keyboard capture).
 
 Future: `dashboard.streamlit`, `dashboard.events` (WebSocket event bus per §7 of requirements).
 
@@ -155,11 +155,11 @@ Per requirements §2.2, every tick runs three phases in order:
 2. **CV tracking** (YOLOv8 + ByteTrack + fingerprint).
 3. **Control** (PID + camera transform apply).
 
-Currently lessons 03/04 run only phases 1-like (raycast) and 3 (camera placement). CV lands with the Detection milestone.
+Currently experiments 03/04 run only phases 1-like (raycast) and 3 (camera placement). CV lands with the Detection milestone.
 
 **Key invariants already enforced by the package:**
 
-- **One client ticks.** All lessons connect as the sole ticker. Multi-client scenarios are out of scope.
+- **One client ticks.** All experiments connect as the sole ticker. Multi-client scenarios are out of scope.
 - **Synchronous mode is scoped.** The `synchronous_mode(world, dt)` context manager is the only place sync mode is toggled. SIGTERM bypasses it (a known caveat) so we additionally provide documentation and a manual reset idiom for ops.
 - **Sensors destroyed before vehicles.** `destroy_all(actors)` iterates in reverse-spawn order; sensors with `.is_listening` are `.stop()`-ed first. This closes the leak documented in caveat §6.
 - **Fixed 20 FPS.** `fixed_delta_seconds = 0.05`, CARLA server launched with `-benchmark -fps=20` to match. Both settings must agree (caveat §15).
@@ -207,7 +207,7 @@ Each tick, casts `N=8` horizontal rays from the drone's previous-Z position outw
 
 ## 9. Dashboard Surface
 
-Lessons run their own lightweight surface: `MJPEGServer` serves `/` (HTML with embedded stream) and `/stream` (multipart JPEG). Lesson 02 adds a `/keys` POST route on the same Flask app for keyboard capture — demonstrates the "attach extra routes" extension pattern.
+Experiments run their own lightweight surface: `MJPEGServer` serves `/` (HTML with embedded stream) and `/stream` (multipart JPEG). Experiment 02 adds a `/keys` POST route on the same Flask app for keyboard capture — demonstrates the "attach extra routes" extension pattern.
 
 The real §7 dashboard (Streamlit + Leaflet + WebSocket event bus) will sit alongside, reusing the MJPEG feed. Design for that lands with the Dashboard milestone.
 
@@ -223,10 +223,10 @@ Current coverage:
 - `test_config.py` — OmegaConf merger: file overlays, dot-list overrides, missing-config errors.
 
 **What we explicitly do not test:**
-- CARLA integration behaviours (spawns, raycast hits). Mocking CARLA deeply is expensive and brittle; we rely on end-to-end runs of the lesson scripts instead.
-- Flask routes. MJPEG is exercised whenever a lesson runs; separate route tests would be over-engineering for a demo.
+- CARLA integration behaviours (spawns, raycast hits). Mocking CARLA deeply is expensive and brittle; we rely on end-to-end runs of the experiment scripts instead.
+- Flask routes. MJPEG is exercised whenever an experiment runs; separate route tests would be over-engineering for a demo.
 
-**E2E verification** is manual: run each lesson against a live CARLA server, check Flask serves HTTP 200, verify the frame stream is live. Documented in the PR descriptions, not automated. Added to the test strategy if a CV regression workflow demands it.
+**E2E verification** is manual: run each experiment against a live CARLA server, check Flask serves HTTP 200, verify the frame stream is live. Documented in the PR descriptions, not automated. Added to the test strategy if a CV regression workflow demands it.
 
 ---
 
@@ -234,7 +234,7 @@ Current coverage:
 
 **Entrypoint contract: everything through `make`.** Operators never invoke `docker compose`, `pip`, or `python3` directly. The Makefile is organised into six sections — Lifecycle, Observability, Experiments, Application, Dev, World Control — and `make help` prints them.
 
-**Experiments are discovery-based.** `make exp N=NN` fuzzy-matches `scripts/NN_*.py`, so adding a new lesson needs no Makefile edit. `make exp-list` shows what's available.
+**Experiments are discovery-based.** `make exp N=NN` fuzzy-matches `scripts/NN_*.py`, so adding a new experiment needs no Makefile edit. `make exp-list` shows what's available.
 
 **Releases are commit-grained, not tagged.** For a demo we don't need semver. Each meaningful feature lands as a focused commit; the git history is the changelog. (This document's Design Log complements it with *why* notes.)
 
@@ -264,13 +264,13 @@ The Traffic Manager's hybrid-physics mode anchors its radius on `role_name='hero
 
 **Status:** Decided · **Date:** 2026-04-20
 
-Sync mode is owned by `skycop.sim.synchronous_mode()` (context manager). Destroy order is owned by `skycop.sim.destroy_all()`. Seed setting is per-script since the RNGs are created there. No single "engine" class wraps the loop — each lesson owns its tick loop explicitly so the control flow is readable top-to-bottom. When the application's `main.py` lands, it will introduce a thin `Mission` orchestrator, but not an engine abstraction.
+Sync mode is owned by `skycop.sim.synchronous_mode()` (context manager). Destroy order is owned by `skycop.sim.destroy_all()`. Seed setting is per-script since the RNGs are created there. No single "engine" class wraps the loop — each experiment owns its tick loop explicitly so the control flow is readable top-to-bottom. When the application's `main.py` lands, it will introduce a thin `Mission` orchestrator, but not an engine abstraction.
 
 ### D-05 · Dashboard: MJPEG now, Streamlit later
 
 **Status:** Decided · **Date:** 2026-04-20
 
-Streamlit is the target per DB-10. For lessons 01–04, just a live camera feed is enough; MJPEG keeps the first few lessons dependency-light and avoids Streamlit boilerplate. Streamlit lands with the Dashboard milestone and will consume the same MJPEG feed plus the WebSocket event bus.
+Streamlit is the target per DB-10. For experiments 01–04, just a live camera feed is enough; MJPEG keeps the first few experiments dependency-light and avoids Streamlit boilerplate. Streamlit lands with the Dashboard milestone and will consume the same MJPEG feed plus the WebSocket event bus.
 
 ### D-06 · Commit grain: focused commits, no tags
 

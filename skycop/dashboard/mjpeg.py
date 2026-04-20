@@ -2,7 +2,7 @@
 
 Usage:
 
-    server = MJPEGServer(title="Lesson 03 — suspect follow")
+    server = MJPEGServer(title="Experiment 03 — suspect follow")
     server.start(port=5000)
     # ... in a CARLA loop:
     server.push(frame_bgr)
