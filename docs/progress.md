@@ -15,7 +15,7 @@ Mirrors `REQUIREMENTS.md §14`. Each milestone is closed when its Definition of 
 | Phase | Status | DoD (abbrev.) | Evidence |
 |---|---|---|---|
 | Environment | ✅ | Town10, 50 NPCs, suspect, aerial camera streaming, adaptive altitude | exp 01–04 |
-| Detection | 🔨 | YOLOv8 fine-tuned (VisDrone + CARLA synthetic), ByteTrack integrated, suspect tracked at 80 km/h, mAP ≥ 85% | exp 05–08 planned |
+| Detection | 🔨 | YOLOv8s fine-tuned (VisDrone warm-start, CARLA holdout eval), ByteTrack integrated, mAP ≥ 85% on holdout | exp 05 ✅ · exp 06–08 planned |
 | Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | — |
 | Re-ID | ⬜ | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | — |
 | Dashboard | ⬜ | Streamlit live, manual mode playable, scoring, debrief | — |
@@ -23,7 +23,7 @@ Mirrors `REQUIREMENTS.md §14`. Each milestone is closed when its Definition of 
 
 ## Experiments
 
-One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experiment hands to the next step (training data, weights, metrics) — not transient state.
+One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experiment hands to the next step.
 
 | # | Script | Purpose | Status | Produces |
 |---|---|---|---|---|
@@ -31,25 +31,35 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 | 02 | `drone_view` | Free-fly drone via Flask keyboard (smoke test for the spectator + MJPEG pipeline) | ✅ | — (interactive) |
 | 03 | `suspect_and_traffic` | 50 NPCs + reckless suspect, fixed-altitude aerial follow | ✅ | — |
 | 04 | `adaptive_altitude` | SIM-11..14: adaptive altitude via `world.cast_ray()`, hybrid physics anchored on hero | ✅ | — |
-| 05 | `collect_dataset` | Sweep drone pitch/alt/yaw/weather; RGB + instance-seg → YOLO-format labels | ⬜ | `output/dataset/` + `dataset_manifest.json` |
-| 06 | `yolo_baseline` | Pretrained YOLOv8s on our frames → measure mAP; demonstrates the domain gap | ⬜ | `output/baseline/metrics.json` |
-| 07 | `finetune_yolo` | Fine-tune YOLOv8s on VisDrone warm-start + CARLA synthetic | ⬜ | `output/weights/best.pt` |
-| 08 | `yolo_inloop` | Drop fine-tuned weights into the live pipeline; boxes + IDs overlaid on MJPEG | ⬜ | — |
-| 09 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end (stub tracking / fingerprint) | ⬜ | — |
+| 05 | `capture_eval_set` | CARLA pursuit eval holdout — 200 frames + YOLO labels + manifest | ✅ | `output/eval/carla_eval/` (200 jpg + 200 txt + manifest.json) |
+| 06 | `finetune_yolo` | YOLOv8s fine-tune on VisDrone warm-start; scores pretrained + fine-tuned on exp 05 holdout | ⬜ | `output/weights/best.pt` + `output/eval/metrics.json` |
+| 07 | `yolo_inloop` | Fine-tuned weights in live pipeline, boxes + conf overlaid on MJPEG | ⬜ | — |
+| 08 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
+| 09 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
+| 10 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end | ⬜ | — |
+| 11 | `dashboard_scoring` | Streamlit + event bus + scoring + debrief | ⬜ | — |
+| 12 | `finetune_round2` | *If* exps 07–10 exposed detector gaps, fine-tune again on in-app-captured pursuit frames | ⬜ | `output/weights/best_v2.pt` |
 
 ## Currently
 
-- [x] Terminology rename (`lesson` → `experiment`) and this progress log (#1)
-- [ ] **Exp 05 — synthetic dataset collection** (next)
-- [ ] Exp 06 — baseline pretrained inference
-- [ ] Exp 07 — fine-tune on VisDrone + CARLA synthetic
-- [ ] Exp 08 — in-loop inference with fine-tuned weights
-- [ ] Exp 09 — first end-to-end mission (tracer bullet)
+- [x] Exp 05 — CARLA pursuit eval holdout (200 frames, 4 of 5 classes represented)
+- [ ] **Exp 06 — VisDrone warm-start fine-tune + mAP on holdout** (next)
+- [ ] Exp 07 — fine-tuned weights in live pipeline
+- [ ] Exp 08 — ByteTrack integration
+- [ ] Exp 09 — fingerprint
+- [ ] Exp 10 — first end-to-end mission
+
+### Known gaps / debt
+
+- **No motorcycle examples in the exp 05 eval holdout.** CARLA Traffic Manager cannot autopilot 2-wheelers, so the 50 NPC spawns are 4-wheel-only and the suspect is too. If motorcycle detection becomes important to the mission, spawn a handful of parked motorcycles (`set_simulate_physics(False)`) or drive one manually, then regenerate a motorcycle-focused eval slice. Not blocking exp 06.
+- **`dropped_unknown_class: 9423`** in the manifest is not error count — it's a per-frame sum of non-vehicle Unreal mesh component IDs the extractor correctly filtered out (roads, buildings, signs). Could be optimised by pre-filtering on the semantic-label R channel; cheap to do but not worth doing until profiling shows capture is a bottleneck.
 
 ## Log
 
-Reverse chronological. One line per landed PR. Commit SHA linked where relevant.
+Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #3 — Exp 05: CARLA pursuit eval holdout capture + `skycop.cv.dataset` / `vehicle_classes`
+- **2026-04-20** · #2 `be7ba5c` — chore: rename lesson→experiment + add progress log
 - **2026-04-20** · `4e027f5` Add `docs/design.md` — living application design record
 - **2026-04-20** · `03b028c` Add adaptive altitude controller + OmegaConf configs (exp 04)
 - **2026-04-20** · `634c660` Restructure around `skycop/` package with pyproject-driven deps (exps 01–03 refactored)
