@@ -26,11 +26,11 @@ def test_four_wheel_defaults_to_car():
     assert classify_blueprint("vehicle.tesla.model3", 4) == "car"
 
 
-def test_two_wheel_is_motorcycle_by_default():
-    assert classify_blueprint("vehicle.harley-davidson.low_rider", 2) == "motorcycle"
-
-
-def test_bicycle_substrings_map_to_none():
+def test_all_two_wheelers_are_dropped():
+    """2-wheelers (bikes + motorcycles) excluded — TM can't autopilot them."""
+    assert classify_blueprint("vehicle.harley-davidson.low_rider", 2) is None
+    assert classify_blueprint("vehicle.kawasaki.ninja", 2) is None
+    assert classify_blueprint("vehicle.vespa.zx125", 2) is None
     assert classify_blueprint("vehicle.bh.crossbike", 2) is None
     assert classify_blueprint("vehicle.diamondback.century", 2) is None
     assert classify_blueprint("vehicle.gazelle.omafiets", 2) is None
@@ -49,10 +49,11 @@ def test_bus_pattern():
     assert classify_blueprint("vehicle.mitsubishi.fusorosa", 4) == "bus"
 
 
-def test_class_names_cover_five_classes():
-    assert CLASS_NAMES == ["car", "van", "truck", "bus", "motorcycle"]
+def test_class_names_cover_four_classes():
+    assert CLASS_NAMES == ["car", "van", "truck", "bus"]
     assert CLASS_INDEX["car"] == 0
-    assert CLASS_INDEX["motorcycle"] == 4
+    assert CLASS_INDEX["bus"] == 3
+    assert "motorcycle" not in CLASS_INDEX
 
 
 def test_class_index_raises_on_unknown():

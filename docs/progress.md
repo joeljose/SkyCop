@@ -15,7 +15,7 @@ Mirrors `REQUIREMENTS.md §14`. Each milestone is closed when its Definition of 
 | Phase | Status | DoD (abbrev.) | Evidence |
 |---|---|---|---|
 | Environment | ✅ | Town10, 50 NPCs, suspect, aerial camera streaming, adaptive altitude | exp 01–04 |
-| Detection | 🔨 | YOLOv8s fine-tuned (VisDrone warm-start, CARLA holdout eval), ByteTrack integrated, mAP ≥ 85% on holdout | exp 05 ✅ · exp 06–08 planned |
+| Detection | 🔨 | YOLOv8s fine-tuned on 4 classes (car/van/truck/bus), ByteTrack integrated, mAP ≥ 85% on CARLA holdout | exp 05 ✅ · exp 06–08 planned |
 | Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | — |
 | Re-ID | ⬜ | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | — |
 | Dashboard | ⬜ | Streamlit live, manual mode playable, scoring, debrief | — |
@@ -42,7 +42,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 
 ## Currently
 
-- [x] Exp 05 — CARLA pursuit eval holdout (200 frames, 4 of 5 classes represented)
+- [x] Exp 05 — CARLA pursuit eval holdout (200 frames, all 4 classes represented)
 - [ ] **Exp 06 — VisDrone warm-start fine-tune + mAP on holdout** (next)
 - [ ] Exp 07 — fine-tuned weights in live pipeline
 - [ ] Exp 08 — ByteTrack integration
@@ -51,8 +51,11 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 
 ### Known gaps / debt
 
-- **No motorcycle examples in the exp 05 eval holdout.** CARLA Traffic Manager cannot autopilot 2-wheelers, so the 50 NPC spawns are 4-wheel-only and the suspect is too. If motorcycle detection becomes important to the mission, spawn a handful of parked motorcycles (`set_simulate_physics(False)`) or drive one manually, then regenerate a motorcycle-focused eval slice. Not blocking exp 06.
 - **`dropped_unknown_class: 9423`** in the manifest is not error count — it's a per-frame sum of non-vehicle Unreal mesh component IDs the extractor correctly filtered out (roads, buildings, signs). Could be optimised by pre-filtering on the semantic-label R channel; cheap to do but not worth doing until profiling shows capture is a bottleneck.
+
+### Deliberate scope choices
+
+- **4-class taxonomy — motorcycles excluded.** CARLA's Traffic Manager cannot autopilot 2-wheelers, so our pursuit scenes produce zero motorcycle training or eval data. Carrying a class we can neither train nor evaluate on is worse than dropping it; `skycop.cv.vehicle_classes` documents how to reinstate "motorcycle" if that constraint goes away.
 
 ## Log
 
