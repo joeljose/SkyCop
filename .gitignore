@@ -16,6 +16,10 @@ __pycache__/
 output/
 recordings/
 
+# Model weights (ultralytics downloads yolov8s.pt here on first use)
+*.pt
+*.pth
+
 # IDE
 .vscode/
 .idea/

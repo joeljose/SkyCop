@@ -278,6 +278,21 @@ Streamlit is the target per DB-10. For experiments 01–04, just a live camera f
 
 Each logical unit (scaffold, feature slice, docs update) is its own commit. No release tags until we either cut the demo or hit a reviewer-facing milestone worth naming.
 
+### D-08 · Detection milestone: measure pretrained in-loop before any training
+
+**Status:** Decided · **Date:** 2026-04-20
+
+The original plan was "fine-tune on VisDrone first, then test in-loop." Flipped after grilling: we didn't know if speed, accuracy, or both were the constraint, and training a wrong-size model is a 2–3 hour mistake.
+
+New sequence:
+
+1. **Exp 06 — pretrained baseline (no training).** Run COCO YOLOv8s in-loop, measure sustained FPS, VRAM, and mAP on the CARLA holdout. Gives us the reference point every downstream step compares against. Total cost: weights download + ~90 s of runtime.
+2. **Exp 07 — fine-tune** — only once we know what's broken. If FPS was the bottleneck, consider YOLOv8n. If recall is the issue, target dataset composition accordingly. If class confusion dominates, weight the loss toward confusable pairs.
+
+Exp 06 resolved: FPS is fine (26), mAP is catastrophic (~2%). Gap is recall (6%) + class confusion (vans → trucks, buses missed). Fine-tuning is the right next step, and the in-app recording hook — rather than VisDrone — is now the favoured data source because it captures the *actual* operational distribution (−75° pitch, 15–40m altitude, CARLA textures).
+
+**Why this matters:** the original "VisDrone warm-start then CARLA" plan assumed we needed a two-stage dataset strategy. Exp 06's numbers suggest the pretrained model sees almost nothing useful in our frames (n_predictions = 44 across 200 frames containing 763 ground-truth boxes) — so the warm-start may offer diminishing returns vs just training from the pretrained initialisation on in-domain CARLA data directly. Exp 07 will test this empirically by starting without VisDrone and only adding it if the CARLA-only fine-tune underperforms.
+
 ### D-07 · Aerial camera pitch: −75° operational, −90° reserved for parking re-ID
 
 **Status:** Decided · **Date:** 2026-04-20

@@ -43,6 +43,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - HOME=/home/carla
+      - USER=carla              # see docs/carla_caveats.md §16 — torch/pwd lookup
+      - LOGNAME=carla            # fails for bind-mounted UIDs without /etc/passwd entry
       - PYTHONPATH=/app
       - CARLA_HOST=carla-server
       - CARLA_PORT=2000
