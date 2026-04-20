@@ -74,7 +74,7 @@ def run(server: MJPEGServer, cfg):
                 loc = suspect.get_transform().location
                 camera.set_transform(carla.Transform(
                     carla.Location(loc.x, loc.y, loc.z + cfg.camera.altitude),
-                    carla.Rotation(pitch=-90, yaw=0, roll=0),
+                    carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 ))
 
                 world.tick()

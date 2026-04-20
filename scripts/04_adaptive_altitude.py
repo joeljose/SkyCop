@@ -102,7 +102,7 @@ def run(server: MJPEGServer, cfg):
                 target_z, obs = altitude_ctrl.step(loc.x, loc.y)
                 camera.set_transform(carla.Transform(
                     carla.Location(loc.x, loc.y, target_z),
-                    carla.Rotation(pitch=-90, yaw=0, roll=0),
+                    carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 ))
 
                 world.tick()

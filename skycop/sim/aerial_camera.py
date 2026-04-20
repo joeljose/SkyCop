@@ -28,9 +28,12 @@ def spawn_aerial_camera(
     cam_bp.set_attribute("fov", str(fov))
 
     if transform is None:
+        # Initial spawn transform only — callers are expected to update the
+        # camera transform every tick. -75° matches the operational default
+        # (see configs/default.yaml and docs/design.md D-07).
         transform = carla.Transform(
             carla.Location(0, 0, 100),
-            carla.Rotation(pitch=-90),
+            carla.Rotation(pitch=-75),
         )
 
     camera = world.spawn_actor(cam_bp, transform, attach_to=attach_to)
