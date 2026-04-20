@@ -1,0 +1,14 @@
+# CARLA pursuit eval holdout — exp 05.
+# Layered on top of configs/default.yaml (which provides scene + carla + camera).
+
+eval_capture:
+  target_frames: 200          # stop once this many frames have ≥1 valid label
+  subsample_every: 10         # capture every Nth tick (20 FPS → 2 Hz at N=10)
+  max_ticks: 6000             # hard cap (~5 min at 20 FPS)
+  output_dir: /app/output/eval/carla_eval
+  min_bbox_pixel: 20          # drop boxes below this side length
+  min_visibility: 0.3         # actor_pixels / bbox_area ≥ this to keep box
+  jpeg_quality: 92            # higher than MJPEG default; this is a permanent artifact
+
+  # Override default suspect role_name='hero' is still used so TM hybrid physics
+  # anchors correctly during the pursuit.
