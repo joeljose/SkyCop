@@ -1,0 +1,12 @@
+# Adaptive altitude controller — SIM-11..14.
+# Layered on top of configs/default.yaml.
+
+altitude:
+  min_m: 10.0                    # SIM-13 floor
+  max_m: 60.0                    # SIM-13 ceiling
+  open_target_m: 15.0            # SIM-11 · open roads, low
+  urban_target_m: 40.0           # SIM-12 · near buildings, high
+  lateral_scan_radius_m: 20.0    # SIM-12 trigger radius
+  rooftop_clearance_m: 12.0      # SIM-14 min clearance above detected rooftops
+  lateral_scan_rays: 8           # raycasts per tick (more = slower, finer detection)
+  smoothing: 0.2                 # IIR filter on output Z (0 = snap, 1 = frozen)

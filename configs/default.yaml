@@ -1,0 +1,27 @@
+# SkyCop — default scene configuration.
+# Override any value via `load("default", overrides=["seed=7", "camera.fov=53"])`.
+
+seed: 42  # NFR-07 reproducibility
+
+carla:
+  host: carla-server
+  port: 2000
+  tm_port: 8000
+  map: Town10HD_Opt
+  fixed_delta_seconds: 0.05  # SIM-04 · 20 FPS
+
+scene:
+  npc_count: 50
+  suspect:
+    speed_over_pct: -80.0   # FR-08 · negative = faster, see carla_caveats §9
+    ignore_lights_pct: 100.0
+    ignore_signs_pct: 100.0
+    lane_change_pct: 50.0
+    follow_dist_m: 1.0
+    role_name: hero         # lets TM hybrid-physics anchor on the suspect
+
+camera:
+  width: 1280
+  height: 720
+  fov: 90
+  altitude: 25.0             # fixed altitude fallback for scripts that don't adapt
