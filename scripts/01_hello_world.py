@@ -1,5 +1,5 @@
 """
-Lesson 01 — Hello CARLA World
+Experiment 01 — Hello CARLA World
 
 Connects to the CARLA server, prints world info, spawns a vehicle with
 an RGB camera, captures one frame using synchronous mode, and saves it.

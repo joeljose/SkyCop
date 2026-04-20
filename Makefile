@@ -2,7 +2,7 @@
 # Run `make help` to see all available targets.
 #
 # Conventions:
-#   exp         — one-off lessons in scripts/ (discovery-based, no Makefile edit per script)
+#   exp         — one-off experiments in scripts/ (discovery-based, no Makefile edit per script)
 #   app         — the main SkyCop pipeline (scaffolded alongside skycop/ package)
 #   test/lint   — quality gates (scaffolded with the package)
 #

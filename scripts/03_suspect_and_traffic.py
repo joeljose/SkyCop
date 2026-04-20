@@ -1,5 +1,5 @@
 """
-Lesson 03 — Suspect + Traffic
+Experiment 03 — Suspect + Traffic
 
 Closes the Environment milestone:
   - Town10HD_Opt loaded
@@ -99,8 +99,8 @@ def run(server: MJPEGServer, cfg):
 def main():
     cfg = load("default")
     server = MJPEGServer(
-        title="SkyCop — Lesson 03",
-        hud=f"Lesson 03 · fixed-altitude follow @ {cfg.camera.altitude:.0f}m",
+        title="SkyCop — Experiment 03",
+        hud=f"Experiment 03 · fixed-altitude follow @ {cfg.camera.altitude:.0f}m",
     )
     server.start(port=5000)
     time.sleep(0.3)

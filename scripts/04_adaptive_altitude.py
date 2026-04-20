@@ -1,7 +1,7 @@
 """
-Lesson 04 — Adaptive Altitude
+Experiment 04 — Adaptive Altitude
 
-Builds on lesson 03 and layers in SIM-11..14:
+Builds on experiment 03 and layers in SIM-11..14:
   - Aerial camera height adapts each tick using world.cast_ray()
   - Lateral ring of rays detects buildings within 20m → climb
   - Downward ray measures rooftop height → ensure 12m clearance
@@ -130,8 +130,8 @@ def run(server: MJPEGServer, cfg):
 def main():
     cfg = load("default", "altitude")
     server = MJPEGServer(
-        title="SkyCop — Lesson 04",
-        hud=f"Lesson 04 · adaptive altitude [{cfg.altitude.min_m:.0f}–{cfg.altitude.max_m:.0f}m]",
+        title="SkyCop — Experiment 04",
+        hud=f"Experiment 04 · adaptive altitude [{cfg.altitude.min_m:.0f}–{cfg.altitude.max_m:.0f}m]",
     )
     server.start(port=5000)
     time.sleep(0.3)
