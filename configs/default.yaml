@@ -25,3 +25,7 @@ camera:
   height: 720
   fov: 90
   altitude: 25.0             # fixed altitude fallback for scripts that don't adapt
+  pitch: -75.0               # degrees. −75° balances parking-lot re-ID (wants −90°) with
+                             # vehicle-class discrimination (needs side features). Parking-
+                             # mode snap to −90° lands with the mission FSM (exp 10). See
+                             # docs/design.md D-07.

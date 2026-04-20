@@ -278,6 +278,24 @@ Streamlit is the target per DB-10. For experiments 01–04, just a live camera f
 
 Each logical unit (scaffold, feature slice, docs update) is its own commit. No release tags until we either cut the demo or hit a reviewer-facing milestone worth naming.
 
+### D-07 · Aerial camera pitch: −75° operational, −90° reserved for parking re-ID
+
+**Status:** Decided · **Date:** 2026-04-20
+
+Considered: (a) pure nadir (−90°) for the whole mission; (b) chase-cam (−30° to −45°); (c) oblique aerial (−60° to −75°); (d) dual-camera fixed-nadir + oblique.
+
+Chose (c) at −75° as the operational default, with an explicit mode transition to −90° for the parking re-ID phase (implemented with the mission FSM in exp 10, not now).
+
+**Why not pure nadir.** CV-12 wants vehicle class (car / van / truck / bus). From straight overhead, all four look like rectangles of similar aspect ratio; side features that actually distinguish them (cab height, cargo length, window layout) are invisible. We'd be asking the detector to do something the physics of the view rules out.
+
+**Why not chase-cam.** Too much sky and too little per-target pixel density — poor fingerprint signal, useless for the top-down-ish mental model the mission is built around.
+
+**Why not dual-camera.** Doubles render VRAM (~400 MB at 1280×720), doubles CV throughput, and adds a fusion layer for decisions that only weakly couple. Single camera with a mode-aware pitch is simpler and still services both needs because the modes are non-overlapping in time (pursuit vs parking).
+
+**Trade-offs accepted.** Colour-HSV fingerprint (CV-11) takes a ~5% noise increase at −75° vs −90° because side shadows leak into the roof histogram bin. Ground-plane pixel-to-world projection (CM-01..04) gets marginally more complex because the ray hits ground further than directly below. Both are measurable and not deal-breakers.
+
+**How to reinstate −90°.** The value is in `configs/default.yaml` under `camera.pitch`. Parking-phase snap will be a single reassignment when the suspect velocity drops below 2 km/h for 3 s (CV-26), implemented in the mission FSM — altitude also drops to ~10m at that time so the nadir view still gives useful re-ID resolution.
+
 ---
 
 ## 13. Open Questions

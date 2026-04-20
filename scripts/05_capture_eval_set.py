@@ -85,7 +85,8 @@ def spawn_instance_seg_camera(world, width: int, height: int, fov: int):
     bp.set_attribute("image_size_x", str(width))
     bp.set_attribute("image_size_y", str(height))
     bp.set_attribute("fov", str(fov))
-    transform = carla.Transform(carla.Location(0, 0, 100), carla.Rotation(pitch=-90))
+    # Initial spawn transform — overwritten every tick by the main loop.
+    transform = carla.Transform(carla.Location(0, 0, 100), carla.Rotation(pitch=-75))
     cam = world.spawn_actor(bp, transform)
     q: queue.Queue[carla.Image] = queue.Queue()
     cam.listen(q.put)
@@ -160,7 +161,7 @@ def run(cfg):
                 target_z, _ = altitude_ctrl.step(loc.x, loc.y)
                 pose = carla.Transform(
                     carla.Location(loc.x, loc.y, target_z),
-                    carla.Rotation(pitch=-90, yaw=0, roll=0),
+                    carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 )
                 rgb_cam.set_transform(pose)
                 seg_cam.set_transform(pose)
@@ -200,7 +201,7 @@ def run(cfg):
                     tick=tick,
                     camera_pose={
                         "x": loc.x, "y": loc.y, "z": target_z,
-                        "pitch": -90.0, "yaw": 0.0,
+                        "pitch": float(cfg.camera.pitch), "yaw": 0.0,
                     },
                     suspect_pose={"x": loc.x, "y": loc.y, "z": loc.z},
                     boxes=boxes,

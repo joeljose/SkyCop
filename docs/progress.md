@@ -61,6 +61,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #5 — Aerial camera pitch −90° → −75° (design log D-07); eval holdout regenerated under the new operational distribution
 - **2026-04-20** · #3 — Exp 05: CARLA pursuit eval holdout capture + `skycop.cv.dataset` / `vehicle_classes`
 - **2026-04-20** · #2 `be7ba5c` — chore: rename lesson→experiment + add progress log
 - **2026-04-20** · `4e027f5` Add `docs/design.md` — living application design record
