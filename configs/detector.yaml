@@ -1,0 +1,27 @@
+# YOLOv8 detector configuration — exp 06 and beyond.
+# Layered on top of configs/default.yaml.
+
+detector:
+  weights: yolov8s.pt          # ultralytics will auto-download to ~/.cache on first use
+  input_size: 640              # square input side (640 = stock YOLOv8s)
+  conf_threshold: 0.25
+  iou_threshold: 0.45
+  device: cuda:0
+  fp16: true
+
+  # COCO class id → SkyCop class id. nulls = COCO has no direct match.
+  # When scoring pretrained on our 4-class holdout, entries with null map emit
+  # no prediction for that SkyCop class — so the baseline is fairly reported
+  # with van marked N/A rather than penalised as always-missing.
+  coco_to_skycop:
+    2: 0    # car  → car
+    5: 3    # bus  → bus
+    7: 2    # truck → truck
+    # No COCO class maps to our "van" (class 1). Pretrained eval excludes van.
+
+baseline:
+  live_pursuit_seconds: 60
+  offline_eval_dir: /app/output/eval/carla_eval
+  metrics_out: /app/output/eval/baseline_metrics.json
+  fps_threshold_warn: 18       # log a warning if sustained live FPS below this
+  vram_threshold_gb: 5.5       # NFR-03
