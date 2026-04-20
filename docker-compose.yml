@@ -28,22 +28,25 @@ services:
 
   client:
     build:
-      context: ./client
-      dockerfile: Dockerfile
+      # Build context is repo root so the Dockerfile can COPY pyproject.toml.
+      context: .
+      dockerfile: client/Dockerfile
     runtime: nvidia
     user: "${CARLA_UID:-1000}:${CARLA_GID:-1000}"
     volumes:
-      - ./client:/app
-      - ./scripts:/app/scripts
-      - ./output:/app/output
+      # Bind-mount the entire repo so edits on the host are live in the container.
+      # No `pip install .` — PYTHONPATH makes `import skycop` resolve to /app/skycop.
+      - .:/app
       - ./.client-cache:/home/carla
     working_dir: /app
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - HOME=/home/carla
+      - PYTHONPATH=/app
       - CARLA_HOST=carla-server
       - CARLA_PORT=2000
+      - CARLA_TM_PORT=8000
     depends_on:
       carla-server:
         condition: service_healthy

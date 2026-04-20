@@ -6,16 +6,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget && \
     rm -rf /var/lib/apt/lists/*
 
-# Install CARLA Python API + common deps
-RUN pip install --no-cache-dir \
-    carla==0.9.16 \
-    numpy \
-    opencv-python-headless \
-    matplotlib \
-    pygame \
-    flask
+# Install deps declared in pyproject.toml at the repo root.
+# We only COPY pyproject.toml at build time — the rest of the repo is
+# bind-mounted at runtime (see docker-compose.yml) and made importable
+# via PYTHONPATH=/app. We do NOT `pip install .` the package itself.
+RUN pip install --no-cache-dir tomli
+COPY pyproject.toml /tmp/pyproject.toml
+RUN pip install --no-cache-dir $(python -c "\
+import tomli; \
+c = tomli.load(open('/tmp/pyproject.toml', 'rb')); \
+deps = c['project']['dependencies'] + c['project']['optional-dependencies']['dev']; \
+print(' '.join(deps))\
+")
 
-# Create non-root home
+# Non-root home for bind-mounted caches (uid/gid set by docker-compose `user:`).
 RUN mkdir -p /home/carla && chmod 777 /home/carla
 
 WORKDIR /app

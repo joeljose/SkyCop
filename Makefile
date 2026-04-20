@@ -1,5 +1,12 @@
-# CARLA Testing — Development Makefile
+# SkyCop — Development Makefile
 # Run `make help` to see all available targets.
+#
+# Conventions:
+#   exp         — one-off lessons in scripts/ (discovery-based, no Makefile edit per script)
+#   app         — the main SkyCop pipeline (scaffolded alongside skycop/ package)
+#   test/lint   — quality gates (scaffolded with the package)
+#
+# The container runs as the host user (CARLA_UID/GID exported below → docker-compose.yml).
 
 SHELL := /bin/bash
 export CARLA_UID := $(shell id -u)
@@ -9,8 +16,10 @@ COMPOSE := docker compose
 CLIENT  := $(COMPOSE) exec client
 
 .PHONY: help setup up down clean rebuild \
-        status logs logs-server shell \
-        run hello-world \
+        status logs logs-server \
+        exp exp-list \
+        app \
+        shell test lint fmt \
         map-list map-load
 
 ## —— Setup & Lifecycle ——————————————————————————
@@ -30,11 +39,7 @@ setup: ## First-time setup: create .env, cache dirs, build client image
 up: ## Start CARLA server and client containers
 	$(COMPOSE) up -d
 	@echo ""
-	@echo "Starting CARLA server (this takes 30-60s on first launch)..."
-	@echo "  Server: carla-server (ports 2000-2001)"
-	@echo "  Client: run 'make shell' to interact, or 'make run SCRIPT=scripts/01_hello_world.py'"
-	@echo ""
-	@echo "Run 'make status' to check readiness."
+	@echo "Starting CARLA server (30-60s on first launch). Run 'make status' to check."
 
 down: ## Stop all containers
 	$(COMPOSE) down
@@ -47,7 +52,7 @@ clean: ## Stop containers and remove caches + output
 rebuild: ## Force rebuild client image (use after Dockerfile changes)
 	$(COMPOSE) build --no-cache client
 
-## —— Server & Status ————————————————————————————
+## —— Observability ————————————————————————————————
 
 status: ## Show container status, CARLA health, and GPU
 	@echo "=== Containers ==="
@@ -65,24 +70,65 @@ logs: ## Tail client container logs
 logs-server: ## Tail CARLA server logs
 	$(COMPOSE) logs -f carla-server
 
-## —— Development —————————————————————————————————
+## —— Experiments (scripts/) ——————————————————————
+
+exp-list: ## List all experiment scripts in scripts/
+	@echo "Experiments (scripts/):"
+	@if ls scripts/*.py >/dev/null 2>&1; then \
+	   ls -1 scripts/*.py | sed -e 's|scripts/|  |' -e 's|\.py$$||'; \
+	 else \
+	   echo "  (none)"; \
+	 fi
+
+exp: ## Run an experiment. Usage: make exp N=03  -or-  make exp SCRIPT=scripts/03_foo.py
+	@if [ -n "$(SCRIPT)" ]; then \
+	   echo "Running $(SCRIPT) ..."; \
+	   $(CLIENT) python3 "$(SCRIPT)"; \
+	 elif [ -n "$(N)" ]; then \
+	   match=$$(ls scripts/$(N)_*.py 2>/dev/null | head -n1); \
+	   if [ -z "$$match" ]; then \
+	     echo "No experiment matching scripts/$(N)_*.py"; \
+	     echo "Run 'make exp-list' to see available experiments."; \
+	     exit 1; \
+	   fi; \
+	   echo "Running $$match ..."; \
+	   $(CLIENT) python3 "$$match"; \
+	 else \
+	   echo "Usage:"; \
+	   echo "  make exp N=03                        # fuzzy-match scripts/03_*.py"; \
+	   echo "  make exp SCRIPT=scripts/03_foo.py    # full path"; \
+	   echo "  make exp-list                        # list available experiments"; \
+	   exit 1; \
+	 fi
+
+## —— Application (skycop/) ———————————————————————
+
+app: ## Run the SkyCop mission (python -m skycop.main)
+	$(CLIENT) python3 -m skycop.main
+
+## —— Dev —————————————————————————————————————————
 
 shell: ## Open bash shell in client container
 	$(CLIENT) bash
 
-run: ## Run a Python script in client. Usage: make run SCRIPT=scripts/01_hello_world.py
-	@test -n "$(SCRIPT)" || (echo "Usage: make run SCRIPT=scripts/<name>.py" && exit 1)
-	$(CLIENT) python3 $(SCRIPT)
+test: ## Run unit tests (pytest)
+	$(CLIENT) python3 -m pytest
 
-## —— World Control ——————————————————————————————
+lint: ## Lint check (ruff; config in pyproject.toml)
+	$(CLIENT) python3 -m ruff check .
 
-map-list: ## List all available maps
+fmt: ## Auto-format with ruff
+	$(CLIENT) python3 -m ruff format .
+
+## —— World Control ———————————————————————————————
+
+map-list: ## List all available CARLA maps
 	@$(CLIENT) python3 -c "\
 		import carla, os; \
 		c = carla.Client(os.environ['CARLA_HOST'], 2000); c.set_timeout(10); \
 		[print(f'  {m}') for m in sorted(c.get_available_maps())]"
 
-map-load: ## Load a map. Usage: make map-load MAP=Town03
+map-load: ## Load a CARLA map. Usage: make map-load MAP=Town03
 	@test -n "$(MAP)" || (echo "Usage: make map-load MAP=Town03" && exit 1)
 	@$(CLIENT) python3 -c "\
 		import carla, os; \
@@ -93,11 +139,3 @@ map-load: ## Load a map. Usage: make map-load MAP=Town03
 		print(f'Loading {match[0]}...'); \
 		c.load_world(match[0]); \
 		print('Done')"
-
-## —— Lessons / Experiments ———————————————————————
-
-hello-world: ## Lesson 01: connect, spawn car, capture frame
-	$(CLIENT) python3 scripts/01_hello_world.py
-
-drone: ## Lesson 02: fly around as a drone — open http://localhost:5000
-	$(CLIENT) python3 scripts/02_drone_view.py

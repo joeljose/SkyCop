@@ -1,0 +1,36 @@
+# SkyCop — demo project metadata.
+# Not distributed as a wheel. Runtime imports go through PYTHONPATH=/app inside
+# the container (see docker-compose.yml); this file is only the single source of
+# truth for dependencies and tool config.
+
+[project]
+name = "skycop"
+version = "0.0.1"
+description = "Autonomous drone pursuit assistance — CARLA simulation demo."
+requires-python = ">=3.10"
+dependencies = [
+    "carla==0.9.16",
+    "numpy",
+    "opencv-python-headless",
+    "flask",
+    "omegaconf",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".client-cache", "output"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # line length handled by formatter, not linter
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
