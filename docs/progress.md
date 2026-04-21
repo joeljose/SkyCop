@@ -46,7 +46,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Exp 05 — CARLA pursuit eval holdout (200 frames, all 4 classes represented)
 - [x] Exp 06 — Pretrained baseline: 26 FPS sustained, mAP@0.5 = 4.95% single-class (pretrained does not recognise aerial vehicles — ~5% recall is the real problem, class confusion is now off the board per D-09)
 - [x] Exp 07 — Training-data collection: 5000 frames across 10 runs, 3 weather presets, ~22,000 labels all class-0
-- [ ] **Literature survey PR** — grounds requirements in actual citations before more experiments; revisits REQUIREMENTS.md in light of findings
+- [x] Literature + industry survey (`docs/literature_survey.md`); REQUIREMENTS.md annotated with citations/flags; design log D-10
 - [ ] **SIGABRT teardown fix** — proper fix for the `set_actor_simulate_physics` registry race on run cleanup (tracked for after survey)
 - [ ] Exp 08 — Fine-tune YOLOv8s on the exp 07 dataset
 - [ ] Exp 09 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
@@ -94,6 +94,7 @@ Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #13 — Literature + industry survey retrofit: `docs/literature_survey.md` + REQUIREMENTS.md citation audit + design log D-10
 - **2026-04-20** · #11 — Exp 07: training-data collection (5000 frames, 10 runs, 3 weather presets); `skycop.cv.capture` helper + subprocess-per-run orchestrator; SIGABRT on CARLA teardown worked around but flagged for proper fix
 - **2026-04-20** · #9 — Detector taxonomy collapsed to single-class `vehicle`; fingerprint classes preserved for CV-12; eval holdout + baseline re-run under new taxonomy; design log D-09
 - **2026-04-20** · #7 — Exp 06: pretrained YOLOv8s baseline (FPS/VRAM + mAP on holdout); design log D-08; `skycop.logs` + `skycop.cv.inference` + `skycop.cv.eval`

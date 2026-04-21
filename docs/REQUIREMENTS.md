@@ -107,7 +107,7 @@ The suspect roams for a configurable duration, then drives to a surface parking 
 |----|-------------|
 | FR-01 | System shall generate a suspect vehicle scenario on mission start with randomised vehicle model, colour, and route |
 | FR-02 | Suspect shall begin driving and committing traffic violations immediately on mission start |
-| FR-03 | On the first traffic violation, a dispatch alert shall be sent to the player within 1 second, including last known location and vehicle description. The drone shall receive a number of violation reports determined by difficulty level (with updated location each time), then no further violation alerts. |
+| FR-03 | On the first traffic violation, a dispatch alert shall be sent to the player within 1 second, including last known location and vehicle description. The drone shall receive a number of violation reports determined by difficulty level (with updated location each time), then no further violation alerts. **Acquisition algorithm** — turning dispatch text + location into a visual lock — draws from road-constrained target tracking (RBPF on road graphs, HMM map matching) and description-conditioned detection (OWL-ViT, GroundingDINO, CLIP-ReID). Full algorithm to be specified in §4.8 "Target Acquisition" (follow-up PR). See `docs/literature_survey.md` §4. |
 | FR-04 | Drone shall be deployable by the player within 10 seconds of receiving a dispatch alert |
 | FR-05 | The mission shall end when the suspect parks and the system either confirms or fails to identify the suspect vehicle |
 | FR-06 | The system shall produce a scored debrief at mission end comparing human player vs autonomous CV performance |
@@ -143,7 +143,7 @@ The suspect is unaware of the drone. Its behaviour is driven by a scripted finit
 |----|-------------|
 | CV-01 | System shall use YOLOv8s (single-class `vehicle`; see design D-08 for size and D-09 for taxonomy) fine-tuned on CARLA-generated synthetic data. VisDrone warm-start optional — used only if the CARLA-only fine-tune underperforms against the eval holdout. |
 | CV-02 | Detection shall run at minimum 20 FPS on RTX 4050 using fp16 inference |
-| CV-03 | System shall achieve minimum 85% mAP@0.5 on aerial vehicle detection benchmark |
+| CV-03 | System shall achieve minimum 85% mAP@0.5 on aerial vehicle detection benchmark. **⚠ Aspirational**: published VisDrone-DET SOTA sits around 45–55% mAP@0.5 for aerial fine-tuned YOLO variants; 85% assumes in-domain CARLA training will substantially exceed VisDrone-like distribution — to be revalidated after exp 08 (see `docs/literature_survey.md` §1, §7). |
 | CV-04 | Training data shall be generated using CARLA's instance segmentation camera to produce pixel-accurate bounding box labels automatically — no manual annotation |
 | CV-05 | Detection input resolution shall be 640×640 pixels (standard YOLO input) |
 
@@ -151,7 +151,7 @@ The suspect is unaware of the drone. Its behaviour is driven by a scripted finit
 
 | ID | Requirement |
 |----|-------------|
-| CV-06 | System shall use ByteTrack for multi-object tracking with Kalman filter for motion prediction |
+| CV-06 | System shall use a tracking-by-detection MOT with Kalman motion prediction — ByteTrack as the v1 baseline ([Zhang et al. 2022](https://arxiv.org/abs/2110.06864)); BoT-SORT ([arXiv:2206.14651](https://arxiv.org/abs/2206.14651)) or StrongSORT ([arXiv:2202.13514](https://arxiv.org/abs/2202.13514)) are preferred for the moving-camera scenario and may replace ByteTrack after exp 10 measures the camera-motion compensation benefit. See `docs/literature_survey.md` §2. |
 | CV-07 | Tracker shall maintain track continuity through partial occlusion (e.g. other vehicles passing in front) |
 | CV-08 | Tracker shall assign persistent track IDs that survive across frames |
 | CV-09 | Suspect track ID shall be assigned at first confirmed detection and maintained throughout the mission |
@@ -177,9 +177,9 @@ The fingerprint shall be stored as a structured object and updated every 10 fram
 | ID | Requirement |
 |----|-------------|
 | CV-17 | When tracker loses the suspect track (e.g. vehicle passes under bridge), system shall enter occlusion recovery mode |
-| CV-18 | Recovery shall search the predicted re-emergence zone derived from road graph and last known velocity |
-| CV-19 | Each candidate vehicle in the search zone shall be scored against the stored fingerprint using weighted multi-attribute matching |
-| CV-20 | System shall re-acquire the suspect track if a candidate scores above 0.75 confidence threshold |
+| CV-18 | Recovery shall search the predicted re-emergence zone derived from road graph and last known velocity. Grounded in road-constrained tracking literature ([VS-IMM](https://ieeexplore.ieee.org/document/869492), [RBPF](https://arxiv.org/abs/1301.3853), [HMM map matching](https://dl.acm.org/doi/10.1145/1653771.1653818)) — see `docs/literature_survey.md` §4. |
+| CV-19 | Each candidate vehicle in the search zone shall be scored against the stored fingerprint using weighted multi-attribute matching. Matching approach draws from vehicle Re-ID literature ([VRAI](https://arxiv.org/abs/1904.01400), [CLIP-ReID](https://arxiv.org/abs/2211.13977) for text-description-to-visual matching) — see `docs/literature_survey.md` §3. |
+| CV-20 | System shall re-acquire the suspect track if a candidate scores above 0.75 confidence threshold. **⚠ Speculative**: threshold is un-calibrated; to be tuned empirically. |
 | CV-21 | System shall log each occlusion event and recovery outcome for evaluation |
 
 ### 4.5 Lost Track Fallback
@@ -189,9 +189,9 @@ When occlusion recovery fails (no candidate above threshold within the predicted
 | ID | Requirement |
 |----|-------------|
 | CV-22 | System shall hold position at last known location for 5 seconds, scanning nearby roads |
-| CV-23 | If not re-acquired, system shall execute an expanding spiral search pattern centred on last known position, covering a radius up to 200m |
+| CV-23 | If not re-acquired, system shall execute an expanding spiral search pattern centred on last known position, covering a radius up to 200m. Informed by [POMDP UAV search with negative-information updates (Chung & Burdick 2012)](https://ieeexplore.ieee.org/document/6051437) — negative observations reduce posterior belief in the searched cell — `docs/literature_survey.md` §4. |
 | CV-24 | During search, all CCTV pings and witness reports (if available at current difficulty) shall override the search pattern and redirect the drone |
-| CV-25 | If the suspect is not re-acquired within 60 seconds of track loss, system shall flag the track as lost and continue searching until mission timeout |
+| CV-25 | If the suspect is not re-acquired within 60 seconds of track loss, system shall flag the track as lost and continue searching until mission timeout. **⚠ 60s target is un-cited**: 5–30s occlusion recovery is an open empirical question in the literature (see `docs/literature_survey.md` §3 occlusion recovery note). To be validated during exp 10+. |
 
 ### 4.6 Parking Lot Re-Identification
 
