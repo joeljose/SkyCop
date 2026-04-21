@@ -15,8 +15,11 @@ from skycop.cv.dataset import (
 from skycop.cv.vehicle_classes import (
     CLASS_INDEX,
     CLASS_NAMES,
+    FINGERPRINT_CLASSES,
+    FINGERPRINT_INDEX,
     class_index,
     classify_blueprint,
+    detector_class_for,
 )
 
 # ── classify_blueprint ────────────────────────────────────────────────────
@@ -49,11 +52,27 @@ def test_bus_pattern():
     assert classify_blueprint("vehicle.mitsubishi.fusorosa", 4) == "bus"
 
 
-def test_class_names_cover_four_classes():
-    assert CLASS_NAMES == ["car", "van", "truck", "bus"]
-    assert CLASS_INDEX["car"] == 0
-    assert CLASS_INDEX["bus"] == 3
-    assert "motorcycle" not in CLASS_INDEX
+def test_detector_taxonomy_is_single_class():
+    assert CLASS_NAMES == ["vehicle"]
+    assert CLASS_INDEX["vehicle"] == 0
+    assert "car" not in CLASS_INDEX  # fingerprint-only, not a detector class
+
+
+def test_fingerprint_taxonomy_still_has_four_classes():
+    assert FINGERPRINT_CLASSES == ["car", "van", "truck", "bus"]
+    assert FINGERPRINT_INDEX["car"] == 0
+    assert FINGERPRINT_INDEX["bus"] == 3
+
+
+def test_detector_class_for_returns_zero_for_four_wheelers():
+    assert detector_class_for("vehicle.tesla.model3", 4) == 0
+    assert detector_class_for("vehicle.mitsubishi.fusorosa", 4) == 0
+    assert detector_class_for("vehicle.carlamotors.firetruck", 4) == 0
+
+
+def test_detector_class_for_drops_two_wheelers():
+    assert detector_class_for("vehicle.harley-davidson.low_rider", 2) is None
+    assert detector_class_for("vehicle.bh.crossbike", 2) is None
 
 
 def test_class_index_raises_on_unknown():
@@ -215,7 +234,7 @@ def test_manifest_aggregates_class_and_skip_counts(tmp_path: Path):
         min_visibility=0.3,
     )
 
-    boxes = [BBox(0, 0.5, 0.5, 0.1, 0.1), BBox(2, 0.3, 0.3, 0.1, 0.1)]
+    boxes = [BBox(0, 0.5, 0.5, 0.1, 0.1), BBox(0, 0.3, 0.3, 0.1, 0.1)]
     stats = FrameStats(emitted=2, dropped_too_small=1, dropped_occluded=0)
     manifest.record_frame(
         index=0, tick=10,
@@ -225,7 +244,7 @@ def test_manifest_aggregates_class_and_skip_counts(tmp_path: Path):
         stats=stats,
     )
 
-    assert manifest.class_counts == {"car": 1, "truck": 1}
+    assert manifest.class_counts == {"vehicle": 2}
     assert manifest.skip_counts["dropped_too_small"] == 1
     assert len(manifest.frames) == 1
 

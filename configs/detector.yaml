@@ -9,15 +9,14 @@ detector:
   device: cuda:0
   fp16: true
 
-  # COCO class id → SkyCop class id. nulls = COCO has no direct match.
-  # When scoring pretrained on our 4-class holdout, entries with null map emit
-  # no prediction for that SkyCop class — so the baseline is fairly reported
-  # with van marked N/A rather than penalised as always-missing.
+  # COCO class id → SkyCop detector class id. Our detector is single-class
+  # (index 0 = "vehicle") — see docs/design.md D-09. Every COCO vehicle
+  # class we accept collapses to 0.
   coco_to_skycop:
-    2: 0    # car  → car
-    5: 3    # bus  → bus
-    7: 2    # truck → truck
-    # No COCO class maps to our "van" (class 1). Pretrained eval excludes van.
+    2: 0    # car        → vehicle
+    5: 0    # bus        → vehicle
+    7: 0    # truck      → vehicle
+    # (COCO has no van class, so pretrained loses van coverage — expected.)
 
 baseline:
   live_pursuit_seconds: 60

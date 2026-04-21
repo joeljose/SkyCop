@@ -141,7 +141,7 @@ The suspect is unaware of the drone. Its behaviour is driven by a scripted finit
 
 | ID | Requirement |
 |----|-------------|
-| CV-01 | System shall use YOLOv8m fine-tuned on VisDrone dataset and CARLA-generated synthetic data |
+| CV-01 | System shall use YOLOv8s (single-class `vehicle`; see design D-08 for size and D-09 for taxonomy) fine-tuned on CARLA-generated synthetic data. VisDrone warm-start optional — used only if the CARLA-only fine-tune underperforms against the eval holdout. |
 | CV-02 | Detection shall run at minimum 20 FPS on RTX 4050 using fp16 inference |
 | CV-03 | System shall achieve minimum 85% mAP@0.5 on aerial vehicle detection benchmark |
 | CV-04 | Training data shall be generated using CARLA's instance segmentation camera to produce pixel-accurate bounding box labels automatically — no manual annotation |
@@ -164,7 +164,7 @@ The system shall build and maintain a multi-attribute fingerprint of the suspect
 | ID | Attribute | Method |
 |----|-----------|--------|
 | CV-11 | Colour | HSV histogram on roof bounding box region |
-| CV-12 | Vehicle class | YOLOv8 classification (car / van / truck / motorcycle) |
+| CV-12 | Vehicle class | One of `{car, van, truck, bus}`; sourced from the dispatch description at mission start and from CARLA blueprint metadata at training-data-capture time. **Not** produced by the detector — the detector is single-class (see design D-09). The fingerprint compares the dispatch class against candidates' blueprint-derived class, with soft-score weighting rather than hard filtering. |
 | CV-13 | Roof shape | Bounding box aspect ratio + contour descriptor |
 | CV-14 | Apparent size | Normalised bounding box area relative to altitude |
 | CV-15 | Speed | Kalman filter velocity estimate from track positions |

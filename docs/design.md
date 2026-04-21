@@ -278,6 +278,24 @@ Streamlit is the target per DB-10. For experiments 01–04, just a live camera f
 
 Each logical unit (scaffold, feature slice, docs update) is its own commit. No release tags until we either cut the demo or hit a reviewer-facing milestone worth naming.
 
+### D-09 · Detector taxonomy: single class "vehicle"
+
+**Status:** Decided · **Date:** 2026-04-20
+
+The detector emits one class (`vehicle`). Fine-grained class (`car / van / truck / bus`) moves to the fingerprint module as an attribute sourced from CARLA blueprint metadata at training-data capture time.
+
+**Rationale.** Three independent arguments all point the same way.
+
+1. **CARLA structurally confounds fine-grained classes.** The Traffic Manager doesn't autopilot 2-wheelers (dropped earlier in D-07's predecessor). Bus class in Town10HD_Opt is backed by a single vehicle model (`vehicle.mitsubishi.fusorosa`) which we also always pick as suspect — so every bus instance in training data is the same make/model at similar framing. Fine-tuning learns "Fusorosa ≈ bus", not a general bus detector. The van class is ~3% of NPC spawns, the truck class ~5%, and cars ~75% — a 25:1 imbalance that biases any unweighted fine-tune.
+2. **Dispatch provides the suspect's class before CV runs.** FR-03 specifies the dispatch alert carries a vehicle description including class. The detector does not need to classify to fulfil the mission — it needs to localize, so the fingerprint can score candidates against a known description.
+3. **The detector's class output, if used as a hard filter, would remove the suspect.** If the fine-tuned detector's recall on van is (say) 70%, filtering by detector-class when dispatch says "van" drops 30% of real van vehicles — potentially including the suspect. The fingerprint's soft-scoring across colour + geometry + class is robust to this; hard class filtering is not.
+
+**How the fingerprint gets class.** At training-data capture (exp 05 onward), each extracted bbox already knows its CARLA actor id, so `skycop.cv.classify_blueprint()` supplies a `car / van / truck / bus` label into the per-frame manifest (free, from ground truth). At inference time in a CARLA-hosted demo, the same metadata is available via `world.get_actor(id)`. For a real-world deployment (out of scope) the class would come from bbox-geometry heuristics or a small secondary classifier — future work.
+
+**Trade-offs accepted.** (a) We no longer claim "detector knows what class each vehicle is"; (b) CV-03's 85% mAP target now applies to single-class localization, where it's easier; (c) requirements.md CV-01 and CV-12 were updated to reflect the reframe. The class attribute still exists and still feeds into the suspect-match score — just not through the detector.
+
+**Baseline numbers (exp 06 re-run at single-class).** Pretrained YOLOv8s on COCO: mAP@0.5 = 4.95% (up from 1.89% at 4-class, because class-confusion penalty is gone, but recall is still ~4.6% — pretrained genuinely does not recognise aerial vehicles). That's the number exp 07 aims to beat.
+
 ### D-08 · Detection milestone: measure pretrained in-loop before any training
 
 **Status:** Decided · **Date:** 2026-04-20
