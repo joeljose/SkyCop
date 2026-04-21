@@ -34,7 +34,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 | 05 | `capture_eval_set` | CARLA pursuit eval holdout — 200 frames + YOLO labels + manifest | ✅ | `output/eval/carla_eval/` (200 jpg + 200 txt + manifest.json) |
 | 06 | `yolo_baseline` | Pretrained YOLOv8s in-loop baseline — FPS/VRAM/mAP on exp 05 holdout | ✅ | `output/eval/baseline_metrics.json` |
 | 07 | `collect_training_data` | CARLA pursuit dataset — 10 runs × 500 frames across 3 weather presets | ✅ | `output/dataset/carla_pursuit/` (5000 jpg + 5000 txt + dataset_manifest.json) |
-| 08 | `finetune_yolo` | Fine-tune YOLOv8s on exp 07 dataset, score against exp 05 holdout | ⬜ | `output/weights/best.pt` + `output/eval/fine_tuned_metrics.json` |
+| 08 | `finetune_yolo` | Fine-tune YOLOv8s on exp 07 dataset, score same-map + cross-map | ✅ | `output/weights/run_v1/weights/best.pt` + `output/eval/fine_tuned_metrics.json` + `output/eval/carla_eval_town01/` |
 | 09 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ⬜ | — |
 | 10 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
 | 11 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
@@ -48,12 +48,12 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Exp 07 — Training-data collection: 5000 frames across 10 runs, 3 weather presets, ~22,000 labels all class-0
 - [x] Literature + industry survey (`docs/literature_survey.md`); REQUIREMENTS.md annotated with citations/flags; design log D-10
 - [x] **SIGABRT teardown fix** — `skycop.sim.teardown_pursuit` replaces ad-hoc cleanup in all pursuit callers. Exp 05 now exits clean (code 0). Sequence documented in `docs/carla_caveats.md` §6a.
-- [ ] Exp 08 — Fine-tune YOLOv8s on the exp 07 dataset
-- [ ] Exp 09 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
+- [x] Exp 08 — Fine-tune YOLOv8s: same-map mAP@0.5 = 0.962, cross-map 0.581 (38-pt gap — real features learned + Town10HD overfit component). Design log D-11.
+- [ ] **Exp 09 — fine-tuned weights in live pipeline** (next; visual + FPS comparison vs baseline)
 - [ ] Exp 10 — ByteTrack integration
 - [ ] Exp 11 — fingerprint
 - [ ] Exp 12 — first end-to-end mission
-- [ ] Follow-up chore — convert scripts 01–05 to `logging` (script 06 already on it)
+- [ ] Exp 11-v2 *(conditional)* — re-fine-tune with multi-map training data if exp 09 visual inspection shows the 38-pt cross-map gap is operationally problematic
 
 ### Detection baseline — exp 06 numbers (single-class taxonomy)
 
@@ -69,6 +69,25 @@ Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pret
 | Predictions vs ground truths | 37 / 804 | — | Recall ≈ 4.6% — pretrained genuinely does not recognise aerial vehicles |
 
 **Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 08 targets this directly via in-domain CARLA fine-tuning.
+
+### Detection fine-tune — exp 08 numbers
+
+YOLOv8s fine-tuned from pretrained COCO on the exp 07 dataset (3500 train frames / 1500 val / 7 runs / 3 weather presets on Town10HD_Opt). Training: 30 epochs, batch-size auto-picked at 4 (AutoBatch at 60% VRAM target — **underutilised**, see AutoBatch note below), fp16 via AMP, ~29 min wall-clock.
+
+| Eval set | Source | Frames | mAP@0.5 | mAP@0.5:0.95 | Predictions / GT |
+|---|---|---|---|---|---|
+| **Same-map** | exp 05 holdout, Town10HD_Opt, seed 42 | 200 | **0.962** | 0.812 | 831 / 809 |
+| **Cross-map** | Town01_Opt probe, seed 900 | 100 | **0.581** | 0.561 | 116 / 157 |
+| Pretrained baseline (exp 06, same-map) | same as above | 200 | 0.050 | 0.041 | 37 / 804 |
+| **Gap (same − cross)** | — | — | **0.381** | 0.251 | — |
+
+**Interpretation (encoded in D-11):** PARTIAL. Same-map 96.2% far exceeds CV-03's 85% aspirational target, confirming the detector learned something real — cross-map 58.1% is still 12× the pretrained baseline, so it's not pure memorisation. But a 38-point gap is a substantial Town10HD-specific overfitting component. Multi-map training (exp 11-v2 candidate) is the right intervention if downstream experiments show the cross-map gap hurts the mission.
+
+**AutoBatch headroom (documented for future fine-tunes).** Ultralytics' AutoBatch picked `batch=4` targeting 60% CUDA memory at its probe. Actual training ran at **25% VRAM usage** (1.5 GB / 6 GB) at 88% compute utilisation. Force `batch=16` on subsequent fine-tunes to halve epoch time — memory headroom verified via nvidia-smi sampling.
+
+**Cross-map choice — Town01_Opt, not Town03.** Town03 was first pick but CARLA 0.9.16 segfaults on loading Town03 with 50 NPCs queued (renderer crash in UE4, not our bug). Town01_Opt loads cleanly and has enough road variety to function as a meaningful generalisation probe. Documented inline in `configs/training.yaml` so future authors don't re-try Town03.
+
+**Shared-memory fix.** `docker-compose.yml` adds `shm_size: 2gb` to the client service. PyTorch dataloader workers exchange batches via `/dev/shm`; Docker's default 64 MB is too small and workers die with "unable to allocate shared memory" — training then stalls at 0% GPU utilisation. Noted in the compose file itself.
 
 ### Training dataset — exp 07 numbers
 
@@ -94,6 +113,7 @@ Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-21** · #19 — Exp 08: YOLOv8s fine-tune. Same-map 0.962 / cross-map 0.581 / 38-pt gap (PARTIAL — genuine aerial features + Town10HD overfit). Design log D-11 documents cross-map probe methodology. `docker-compose.yml` gains `shm_size: 2gb` (PyTorch dataloader workers need ≥1 GB, 64 MB default stalls training at 0% GPU util).
 - **2026-04-20** · #15 — Proper CARLA pursuit teardown sequence (`skycop.sim.teardown_pursuit`); SIGABRT on cleanup resolved across all pursuit scripts; docs/carla_caveats.md §6a documents root cause + fix
 - **2026-04-20** · #13 — Literature + industry survey retrofit: `docs/literature_survey.md` + REQUIREMENTS.md citation audit + design log D-10
 - **2026-04-20** · #11 — Exp 07: training-data collection (5000 frames, 10 runs, 3 weather presets); `skycop.cv.capture` helper + subprocess-per-run orchestrator; SIGABRT on CARLA teardown worked around but flagged for proper fix

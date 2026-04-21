@@ -1,0 +1,51 @@
+# YOLOv8s fine-tune configuration — exp 08.
+# Layered on top of configs/default.yaml + configs/training_dataset.yaml.
+
+training:
+  weights: yolov8s.pt           # ultralytics auto-downloads on first use
+  data_yaml: /app/output/dataset/carla_pursuit/dataset.yaml
+  epochs: 30
+  patience: 10                  # early-stop on val mAP@0.5 after N epochs no improvement
+  imgsz: 640
+  batch: -1                     # ultralytics auto-sizer; falls back on OOM
+  optimizer: AdamW
+  seed: 42
+  deterministic: true
+  half: true                    # fp16
+
+  # Aerial-friendly augmentation tweaks vs ultralytics COCO defaults
+  mosaic: 0.0                   # splices 4 images; unnatural road graphs
+  degrees: 0.0                  # aerial frames pre-oriented at −75° pitch
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  scale: 0.5
+  translate: 0.1
+
+  project: /app/output/weights
+  name: run_v1                  # full artifacts at /app/output/weights/run_v1/
+  device: cuda:0
+
+# Cross-map validity probe — fresh seed, single pursuit on a map different
+# from Town10HD_Opt. Town03 was the first pick but it segfaults CARLA
+# 0.9.16's renderer on load; Town01_Opt is a small, stable alternative
+# with enough road variety for a generalisation probe.
+# Never used during training; eval-only.
+crossmap_probe:
+  seed: 900
+  map: Town01_Opt
+  weather: ClearNoon
+  output_dir: /app/output/eval/carla_eval_town01
+  target_frames: 100
+  subsample_every: 10
+  max_ticks: 6000
+  min_bbox_pixel: 20
+  min_visibility: 0.3
+  jpeg_quality: 92
+
+# Evaluation target paths
+eval:
+  same_map_dir: /app/output/eval/carla_eval        # exp 05 holdout
+  cross_map_dir: /app/output/eval/carla_eval_town01
+  baseline_metrics: /app/output/eval/baseline_metrics.json  # exp 06 pretrained
+  metrics_out: /app/output/eval/fine_tuned_metrics.json
