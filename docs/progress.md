@@ -33,22 +33,26 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 | 04 | `adaptive_altitude` | SIM-11..14: adaptive altitude via `world.cast_ray()`, hybrid physics anchored on hero | ✅ | — |
 | 05 | `capture_eval_set` | CARLA pursuit eval holdout — 200 frames + YOLO labels + manifest | ✅ | `output/eval/carla_eval/` (200 jpg + 200 txt + manifest.json) |
 | 06 | `yolo_baseline` | Pretrained YOLOv8s in-loop baseline — FPS/VRAM/mAP on exp 05 holdout | ✅ | `output/eval/baseline_metrics.json` |
-| 07 | `finetune_yolo` | Fine-tune YOLOv8s on CARLA-captured pursuit data (in-app recording hook), re-score against holdout | ⬜ | `output/weights/best.pt` + `output/eval/fine_tuned_metrics.json` |
-| 08 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ⬜ | — |
-| 09 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
-| 10 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
-| 11 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end | ⬜ | — |
-| 12 | `dashboard_scoring` | Streamlit + event bus + scoring + debrief | ⬜ | — |
+| 07 | `collect_training_data` | CARLA pursuit dataset — 10 runs × 500 frames across 3 weather presets | ✅ | `output/dataset/carla_pursuit/` (5000 jpg + 5000 txt + dataset_manifest.json) |
+| 08 | `finetune_yolo` | Fine-tune YOLOv8s on exp 07 dataset, score against exp 05 holdout | ⬜ | `output/weights/best.pt` + `output/eval/fine_tuned_metrics.json` |
+| 09 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ⬜ | — |
+| 10 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
+| 11 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
+| 12 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end | ⬜ | — |
+| 13 | `dashboard_scoring` | Streamlit + event bus + scoring + debrief | ⬜ | — |
 
 ## Currently
 
 - [x] Exp 05 — CARLA pursuit eval holdout (200 frames, all 4 classes represented)
 - [x] Exp 06 — Pretrained baseline: 26 FPS sustained, mAP@0.5 = 4.95% single-class (pretrained does not recognise aerial vehicles — ~5% recall is the real problem, class confusion is now off the board per D-09)
-- [ ] **Exp 07 — Fine-tune YOLOv8s on in-app-captured CARLA pursuit data** (next; exp 06 confirmed pretrained baseline is not sufficient)
-- [ ] Exp 08 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
-- [ ] Exp 09 — ByteTrack integration
-- [ ] Exp 10 — fingerprint
-- [ ] Exp 11 — first end-to-end mission
+- [x] Exp 07 — Training-data collection: 5000 frames across 10 runs, 3 weather presets, ~22,000 labels all class-0
+- [ ] **Literature survey PR** — grounds requirements in actual citations before more experiments; revisits REQUIREMENTS.md in light of findings
+- [ ] **SIGABRT teardown fix** — proper fix for the `set_actor_simulate_physics` registry race on run cleanup (tracked for after survey)
+- [ ] Exp 08 — Fine-tune YOLOv8s on the exp 07 dataset
+- [ ] Exp 09 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
+- [ ] Exp 10 — ByteTrack integration
+- [ ] Exp 11 — fingerprint
+- [ ] Exp 12 — first end-to-end mission
 - [ ] Follow-up chore — convert scripts 01–05 to `logging` (script 06 already on it)
 
 ### Detection baseline — exp 06 numbers (single-class taxonomy)
@@ -64,7 +68,19 @@ Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pret
 | mAP@0.5:0.95 | 0.041 | — | ❌ |
 | Predictions vs ground truths | 37 / 804 | — | Recall ≈ 4.6% — pretrained genuinely does not recognise aerial vehicles |
 
-**Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 07 targets this directly via in-domain CARLA fine-tuning.
+**Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 08 targets this directly via in-domain CARLA fine-tuning.
+
+### Training dataset — exp 07 numbers
+
+Collected over 10 independent pursuits on Town10HD_Opt (seeds 100–109, distinct from the exp 05 eval seed = 42):
+
+| Split | Runs | Frames | Vehicle labels | Weather coverage |
+|---|---|---|---|---|
+| Train | 7 | 3,500 | ~16,000 | ClearNoon ×3 · CloudyNight ×2 · WetCloudyNoon ×2 |
+| Val | 3 | 1,500 | ~6,400 | ClearNoon ×1 · CloudyNight ×1 · WetCloudyNoon ×1 |
+| **Total** | **10** | **5,000** | **~22,400** | — |
+
+Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola, VW T2, Mercedes Coupe, Microlino, etc.) so the detector isn't structurally biased toward any one make/model being "the target." Run-level split (not frame-level) enforced — train and val share zero frames. Each run per-run manifest records the seed, weather, per-frame camera pose, and class-count stats. Capture wall-clock: ~28 minutes for the full sweep.
 
 ### Known gaps / debt
 
@@ -78,6 +94,7 @@ Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pret
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #11 — Exp 07: training-data collection (5000 frames, 10 runs, 3 weather presets); `skycop.cv.capture` helper + subprocess-per-run orchestrator; SIGABRT on CARLA teardown worked around but flagged for proper fix
 - **2026-04-20** · #9 — Detector taxonomy collapsed to single-class `vehicle`; fingerprint classes preserved for CV-12; eval holdout + baseline re-run under new taxonomy; design log D-09
 - **2026-04-20** · #7 — Exp 06: pretrained YOLOv8s baseline (FPS/VRAM + mAP on holdout); design log D-08; `skycop.logs` + `skycop.cv.inference` + `skycop.cv.eval`
 - **2026-04-20** · #5 — Aerial camera pitch −90° → −75° (design log D-07); eval holdout regenerated under the new operational distribution

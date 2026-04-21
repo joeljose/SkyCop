@@ -1,0 +1,29 @@
+# Training-dataset collection — exp 07.
+# Layered on top of configs/default.yaml + configs/altitude.yaml.
+
+training_dataset:
+  output_dir: /app/output/dataset/carla_pursuit
+  target_frames_per_run: 500
+  subsample_every: 10          # 20 FPS / 10 = 2 Hz sampling
+  max_ticks_per_run: 6000      # ~5 min at 20 FPS
+  min_bbox_pixel: 20
+  min_visibility: 0.3
+  jpeg_quality: 92
+
+  # 10 runs across 3 weather presets (SIM-06). Seeds 100–109 — disjoint from
+  # exp 05's seed=42 so the eval holdout remains independent.
+  runs:
+    - {seed: 100, weather: ClearNoon}
+    - {seed: 101, weather: ClearNoon}
+    - {seed: 102, weather: ClearNoon}
+    - {seed: 103, weather: ClearNoon}
+    - {seed: 104, weather: CloudyNight}
+    - {seed: 105, weather: CloudyNight}
+    - {seed: 106, weather: CloudyNight}
+    - {seed: 107, weather: WetCloudyNoon}
+    - {seed: 108, weather: WetCloudyNoon}
+    - {seed: 109, weather: WetCloudyNoon}
+
+  # Run-level split (no frame leakage between train and val).
+  # Val picks one run per weather preset for held-out weather coverage.
+  val_seeds: [103, 106, 109]
