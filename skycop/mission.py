@@ -70,7 +70,7 @@ class MissionResult:
     suspect_type_id: str
     seed: int
     weather: str
-    video_path: str
+    video_path: str | None
     summary_path: str
 
 
@@ -164,6 +164,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     altitude_m = float(mission_cfg.altitude_m)
     weather_name = str(mission_cfg.weather)
     iou_gate = float(mission_cfg.iou_correctness_threshold)
+    save_video = bool(mission_cfg.get("save_video", False))
     fp_cfg = mission_cfg.fingerprint
     rebind_threshold = float(fp_cfg.score_threshold_rebind)
     stickiness = float(fp_cfg.score_stickiness)
@@ -229,13 +230,16 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 fp16=bool(cfg.training.half),
             )
 
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            video_writer = cv2.VideoWriter(
-                str(video_path), fourcc, video_fps,
-                (int(cfg.camera.width), int(cfg.camera.height)),
-            )
-            if not video_writer.isOpened():
-                raise RuntimeError(f"Failed to open VideoWriter at {video_path}")
+            if save_video:
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                video_writer = cv2.VideoWriter(
+                    str(video_path), fourcc, video_fps,
+                    (int(cfg.camera.width), int(cfg.camera.height)),
+                )
+                if not video_writer.isOpened():
+                    raise RuntimeError(f"Failed to open VideoWriter at {video_path}")
+            else:
+                log.info("video saving disabled (mission.save_video=false); live view only")
 
             seed_fp: Fingerprint | None = None
             locked_track_id: int | None = None
@@ -253,10 +257,15 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
 
             t0 = time.perf_counter()
             for tick in range(target_ticks):
-                loc = suspect.get_transform().location
+                suspect_tf = suspect.get_transform()
+                loc = suspect_tf.location
                 pose = carla.Transform(
                     carla.Location(loc.x, loc.y, loc.z + altitude_m),
-                    carla.Rotation(pitch=float(cfg.camera.pitch), yaw=0, roll=0),
+                    carla.Rotation(
+                        pitch=float(cfg.camera.pitch),
+                        yaw=float(suspect_tf.rotation.yaw),
+                        roll=0,
+                    ),
                 )
                 rgb_cam.set_transform(pose)
                 world.tick()
@@ -325,7 +334,8 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                     frames_total, running_correctness,
                 )
 
-                video_writer.write(overlay)
+                if video_writer is not None:
+                    video_writer.write(overlay)
                 if mjpeg_server is not None:
                     mjpeg_server.push(overlay)
                 frames_total += 1
@@ -355,7 +365,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 suspect_type_id=str(suspect.type_id),
                 seed=int(cfg.seed),
                 weather=weather_name,
-                video_path=str(video_path),
+                video_path=str(video_path) if save_video else None,
                 summary_path=str(summary_path),
             )
 
