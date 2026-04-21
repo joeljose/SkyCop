@@ -62,6 +62,31 @@ Always use this sequence when you've enabled hybrid physics or when you have > ~
 
 - **Source:** [CARLA generate_traffic.py reference](https://github.com/carla-simulator/carla/blob/master/PythonAPI/examples/generate_traffic.py) · [apply_batch_sync docs](https://carla.readthedocs.io/en/0.9.16/python_api/#carla.Client.apply_batch_sync)
 
+### 6b. Dual-sensor long captures segfault CARLA on destroy
+
+Empirically verified across SkyCop exps 07, 08, 10: when a pursuit scene spawns **both** an RGB camera and an instance-segmentation camera, runs them in sync mode with every-tick capture for **≥ 250 frames**, and then invokes the §6a teardown, the CARLA server SIGSEGVs during the destroy phase:
+
+```
+carla-server-1 | Signal 11 caught.
+carla-server-1 | CommonUnixCrashHandler: Signal=11
+carla-server-1 | CarlaUE4.sh: line 5: 57 Segmentation fault (core dumped) CarlaUE4-Linux-Shipping
+```
+
+The server container exits with code 139. The Python client then blocks 60 s on the dead RPC socket and raises a C++ `carla::client::TimeoutException`, which `std::terminate`s the process (SIGABRT, exit 134) — Python's `except Exception` cannot catch it because the exception is thrown from the C++ binding layer.
+
+**Does not help:**
+
+- Moving the sensor destroy from `apply_batch_sync([DestroyActor, ...])` to per-actor `sensor.destroy()` before the batch. The server still segfaults on the first sensor.
+- Wrapping destroys in `try/except Exception`. The C++ `terminate` bypasses Python exception handling.
+
+**Root cause (inferred):** UE4 render-target cleanup for the instance-seg camera after a long run trips a use-after-free or similar memory corruption inside `CarlaUE4-Linux-Shipping`. Single-RGB captures with the same frame count and the same teardown sequence do not hit this.
+
+**Scope for SkyCop:** confined to the **offline training/eval pipeline** (`run_capture`, `run_tracking_capture` in `skycop/cv/capture.py`). The production mission uses a single RGB camera per **SIM-07**, so this bug does not affect `skycop.main` or the live-pursuit helper in `skycop/cv/inloop.py`.
+
+**Recommended workaround when a dual-sensor capture is actually needed:** do not rely on teardown at all. Run each capture in a fresh `carla-server` container and `docker compose stop carla-server` between runs — the destroy RPC is skipped entirely, the server exits cleanly when the container stops, and VRAM is reclaimed by process teardown. Costs ~15 s per run for the restart; deterministic and avoids the crash.
+
+- **Source:** empirical, SkyCop issue #25 (closed with this finding). Upstream reports of dual-sensor / instance-seg cleanup crashes: https://github.com/carla-simulator/carla/issues/5790 · https://github.com/carla-simulator/carla/issues/6073
+
 ## 7. Blueprint attribute footguns
 
 - `role_name` has no effect on simulation — it is a free-form tag you set to find your own actors later. Hero-specific behaviour only triggers when `role_name == 'hero'` for some TM heuristics.
