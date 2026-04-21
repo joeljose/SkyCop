@@ -2,7 +2,7 @@
 
 Live state of the project: which milestones are closed, which experiments have landed, what's next. Updated inside the branch that closes each unit of work — never as a stale afterthought.
 
-**Last updated:** 2026-04-20
+**Last updated:** 2026-04-21
 
 **Legend:** ✅ complete · 🔨 in progress · ⬜ planned
 
@@ -15,9 +15,9 @@ Mirrors `REQUIREMENTS.md §14`. Each milestone is closed when its Definition of 
 | Phase | Status | DoD (abbrev.) | Evidence |
 |---|---|---|---|
 | Environment | ✅ | Town10, 50 NPCs, suspect, aerial camera streaming, adaptive altitude | exp 01–04 |
-| Detection | 🔨 | YOLOv8s fine-tuned on 4 classes (car/van/truck/bus), ByteTrack integrated, mAP ≥ 85% on CARLA holdout | exp 05 ✅ · exp 06–08 planned |
-| Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | — |
-| Re-ID | ⬜ | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | — |
+| Detection | ✅ | YOLOv8s fine-tuned single-class `vehicle` (per D-09), ByteTrack integrated, mAP@0.5 = 0.962 same-map / 0.581 cross-map, suspect continuity max 0.996 | exp 05–10 ✅ |
+| Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | exp 12 planned |
+| Re-ID | 🔨 | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | exp 11 planned |
 | Dashboard | ⬜ | Streamlit live, manual mode playable, scoring, debrief | — |
 | Polish | ⬜ | Demo video, README, eval JSON, Docker tested, architecture diagram | — |
 
@@ -51,9 +51,8 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Exp 08 — Fine-tune YOLOv8s: same-map mAP@0.5 = 0.962, cross-map 0.581 (38-pt gap — real features learned + Town10HD overfit component). Design log D-11.
 - [x] Exp 09 — Fine-tuned in-loop inference: 25.0 FPS (baseline 26.2, delta −1.17), 13.9 ms mean detection, 0.042 GB peak VRAM — all within NFR-01/NFR-03. Live pursuit verified end-to-end.
 - [x] Exp 10 — ByteTrack + suspect-continuity eval: max continuity **0.996** (run_B), min **0.724** (run_A), mean 0.86 across 2 runs. Verdict **GOOD** (CV-07 ≥ 0.80 on at least one run).
-- [ ] **teardown_pursuit dual-sensor hang fix** — separate small PR; `apply_batch_sync` times out at 60 s after dual-RGB-seg every-tick captures; proposed fix: destroy heavy sensors individually before the batch to free render targets first.
+- [x] **teardown_pursuit dual-sensor crash — investigated, deferred.** Issue #25 attempted the "destroy sensors individually before batch" fix; E2E reproduced that the real cause is CARLA UE4 SIGSEGV (signal 11) on instance-seg camera destroy, not teardown ordering. Python client gets an uncatchable C++ `TimeoutException` → `terminate` (SIGABRT). Scope confined to dual-sensor offline captures (`run_capture`, `run_tracking_capture`); production mission uses single RGB per SIM-07 and is unaffected. Documented as `docs/carla_caveats.md` §6b. Proper workaround (server restart between runs) deferred until a new dual-sensor capture is actually needed.
 - [ ] Exp 11 — fingerprint (HSV colour + geometry, CV-11..16)
-- [ ] Exp 11 — fingerprint
 - [ ] Exp 12 — first end-to-end mission
 - [ ] Exp 11-v2 *(conditional)* — re-fine-tune with multi-map training data if exp 09 visual inspection shows the 38-pt cross-map gap is operationally problematic
 
@@ -84,7 +83,7 @@ ByteTrack (Ultralytics' bundled) on fine-tuned YOLOv8s detections. Primary metri
 
 **Verdict: GOOD** (CV-07 compliance: continuity ≥ 0.80 on at least one run). Interesting delta between runs — run_B was essentially perfect, run_A had 14 ID switches caused by 16 frames of briefly-missed detections that ByteTrack's Kalman prediction couldn't hold through. Fingerprint module (exp 11) should close this gap via appearance-based re-ID across brief loss events.
 
-Known infra issue documented alongside: **`teardown_pursuit` hangs** when capturing with dual sensors (RGB + instance-seg) at every-tick rate for 250+ frames. `apply_batch_sync` times out at 60 s and SIGABRTs the process. Data survives (tracks.json is written before teardown), but the eval runs in a separate process after captures land on disk. Proper fix (destroy heavy sensors first before the batch) queued as a separate PR.
+Known infra issue documented alongside: **CARLA UE4 segfaults on dual-sensor destroy** when capturing with RGB + instance-seg at every-tick rate for 250+ frames. Server exits with SIGSEGV (code 139); the Python client then blocks 60 s on the dead RPC and aborts via uncatchable C++ `TimeoutException` (code 134). Data survives — `tracks.json` is written before teardown. Issue #25 attempted the "destroy sensors individually first" fix and confirmed it doesn't help (server still segfaults on the individual destroy). Root cause is upstream of anything `teardown_pursuit` can do. Scope confined to the offline training/eval pipeline; production mission uses single RGB per SIM-07 and is unaffected. Documented as `docs/carla_caveats.md` §6b; workaround when next needed is server restart between runs.
 
 ### Detection in-loop — exp 09 numbers
 
