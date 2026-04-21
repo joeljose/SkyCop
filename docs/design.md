@@ -278,6 +278,29 @@ Streamlit is the target per DB-10. For experiments 01–04, just a live camera f
 
 Each logical unit (scaffold, feature slice, docs update) is its own commit. No release tags until we either cut the demo or hit a reviewer-facing milestone worth naming.
 
+### D-11 · Cross-map validity probe for detector evaluation
+
+**Status:** Decided · **Date:** 2026-04-21
+
+Every training, val, and test holdout in exps 05–07 sits on Town10HD_Opt. A detector that memorises Town10HD-specific features (road textures, lighting, building-shadow patterns, vehicle asset set) would score high on the same-map test and collapse on any other map — and the same-map number alone can't distinguish memorisation from genuine generalisation.
+
+Exp 08 introduces a small **cross-map validity probe**: 100 frames captured on a different CARLA map (Town01_Opt), with a disjoint seed (900), never touched during training. The fine-tuned detector is evaluated on both the same-map holdout (exp 05, Town10HD_Opt, seed 42) and the cross-map probe. The gap between the two numbers is the memorisation signal.
+
+Interpretation rules (encoded in `scripts/08_finetune_yolo.py`'s `_interpret`):
+
+| Same-map | Cross-map | Verdict |
+|---|---|---|
+| < 30% | any | **BROKEN** — debug pipeline before reporting |
+| ≥ 70% | < 30% | **MEMORISATION** — caveat loudly, plan multi-map training |
+| ≥ 70% | ≥ 65% | **GOOD** — real generalisation |
+| anything else | — | **PARTIAL** — report both, flag the gap |
+
+**Town choice.** First tried Town03 (the obvious urban counterpart to Town10HD_Opt), but CARLA 0.9.16 segfaults on loading Town03 with a fresh world + 50 NPCs queued — renderer crash inside UE4, not a client-side bug. Town01_Opt loads cleanly and has enough road variety (intersections, curves, different architectural style) to function as a meaningful generalisation probe. The config comment in `configs/training.yaml` records the reason so future authors don't try Town03 and get confused.
+
+**Why not test across all 6+ maps?** Wall-clock cost. Every probe is ~30 s of CARLA runtime. For a portfolio demo we want one representative number, not a matrix. If the one-map probe shows catastrophic overfitting, we'd expand; if the gap is defensible, one probe is enough.
+
+**Follow-ups flagged by the first fine-tune result.** Exp 08 landed at same-map 96.2% / cross-map 58.1% — **38-point gap**. Genuine aerial features were learned (cross-map >> the 5% pretrained baseline), but substantial Town10HD overfitting is present. Future fine-tune rounds (exp 11-v2 if needed) should include training data from at least one additional map; VisDrone warm-start is still a fallback option if multi-map CARLA data proves insufficient.
+
 ### D-10 · Literature and industry survey retrofit
 
 **Status:** Decided · **Date:** 2026-04-20

@@ -33,6 +33,11 @@ services:
       dockerfile: client/Dockerfile
     runtime: nvidia
     user: "${CARLA_UID:-1000}:${CARLA_GID:-1000}"
+    # PyTorch dataloader workers exchange tensor batches via /dev/shm. Docker's
+    # default 64 MB shm is too small — workers die with "unable to allocate
+    # shared memory" and training stalls at 0% GPU utilisation. 2 GB is
+    # enough for 8 workers × (batch × 640×640×3 images).
+    shm_size: 2gb
     volumes:
       # Bind-mount the entire repo so edits on the host are live in the container.
       # No `pip install .` — PYTHONPATH makes `import skycop` resolve to /app/skycop.
