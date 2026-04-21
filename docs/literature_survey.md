@@ -41,6 +41,8 @@ Retrofit survey grounding SkyCop's requirements and design in published work. Co
 - **Domain randomization** ([Tobin et al., arXiv:1703.06907](https://arxiv.org/abs/1703.06907)) — randomize texture/light/weather to force invariance. SkyCop exp 07 applies a light version (3 weather presets, random NPC spawns).
 - Consensus finding across the sim-to-real literature: synthetic-pretrain + small real-set fine-tune beats either alone; pure synthetic training typically loses 10–20 mAP points vs real-trained baselines. **Implication for SkyCop:** CARLA-only fine-tune is defensible for the demo, but a public-deployment claim would need either real-world fine-tuning or sim-specific evaluation caveats.
 
+**Specific sim-to-real gap: motion blur.** CARLA teleports its camera sensor via `set_transform()` each tick — there is no shutter-integration-over-motion, no rolling shutter, and no rotor-vibration artefact. Camera-motion blur that real aerial footage contains (from exposure time × drone velocity) is simply absent from our training frames. CARLA does model *object*-motion blur as a post-processing effect driven by in-world motion, but the default `motion_blur_intensity` is small, so even fast NPCs appear sharper in our synthetic data than they would on real footage. A detector fine-tuned purely on this data may underperform on real aerial video during fast pursuit manoeuvres. Noted for the sim-to-real caveats of any real-world deployment claim.
+
 ---
 
 ## 2. Multi-object tracking
@@ -62,7 +64,9 @@ The tracking-by-detection family is mature and dominant. Key ancestors-in-use in
 | **MOTIP** | 2024 | Transformer ID-as-token tracking | [arXiv:2403.16848](https://arxiv.org/abs/2403.16848) |
 | **GHOST** | 2023 | Simple ReID + on-the-fly domain adaptation | [arXiv:2206.04656](https://arxiv.org/abs/2206.04656) |
 
-**Implication for SkyCop (REQUIREMENTS.md CV-06 currently specifies ByteTrack):** ByteTrack is a defensible baseline but **BoT-SORT** or **StrongSORT** are stronger fits — both add camera-motion compensation, which matters for a drone that is actively moving to keep the suspect in frame. UCMCTrack is a lighter alternative if appearance features hurt more than help at ~30 px target sizes. Worth considering a CV-06 revision after exp 10 lands.
+**Implication for SkyCop (REQUIREMENTS.md CV-06 currently specifies ByteTrack):** ByteTrack is a defensible baseline but **BoT-SORT** or **StrongSORT** are stronger fits — both add camera-motion compensation, which matters for a drone that is actively moving to keep the suspect in frame. Even though CARLA doesn't produce camera-motion *blur* (the sensor teleports, see §1 synthetic-to-real), stationary NPCs still shift in pixel coordinates every frame because the camera transform changes. A Kalman filter on raw pixel coords treats that shift as object motion unless compensated.
+
+**CARLA-specific shortcut.** BoT-SORT's CMC normally estimates the inter-frame camera transform via ORB feature matching between consecutive frames. In CARLA we *set* the camera transform via `set_transform()` every tick — the ground-truth warp is known exactly. Feeding it directly to the tracker skips the estimation step entirely: cheaper, more accurate, no texture-dependent feature-matching failures. This is a simulation-only benefit a real-world deployment wouldn't have, but for the demo it's free correctness. UCMCTrack is a lighter alternative if appearance features hurt more than help at ~30 px target sizes. Worth considering a CV-06 revision after exp 10 lands.
 
 ---
 
