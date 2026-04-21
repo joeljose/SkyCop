@@ -278,6 +278,21 @@ Streamlit is the target per DB-10. For experiments 01–04, just a live camera f
 
 Each logical unit (scaffold, feature slice, docs update) is its own commit. No release tags until we either cut the demo or hit a reviewer-facing milestone worth naming.
 
+### D-10 · Literature and industry survey retrofit
+
+**Status:** Decided · **Date:** 2026-04-20
+
+A formal literature + industry survey now lives at `docs/literature_survey.md` and serves as the citation index for REQUIREMENTS.md and subsequent design decisions. Retrofitted — it should have preceded the requirements doc on day one; the project went through several empirical reversals (D-07 pitch, D-08 detector size, D-09 taxonomy) that earlier survey work would have shortcut.
+
+Key conclusions from the survey that affect design:
+
+- **SkyCop's novelty axis is autonomous target-acquisition-from-description.** Skydio × Axon DFR is the closest shipping analogue and deliberately keeps a human-in-the-loop on target selection. Defense autonomy stacks (Anduril/Shield AI) are opaque on whether they do this. Academic CARLA/AirSim work covers components but not end-to-end pursuit. Positioning: research demo exploring a capability commercial vendors avoid on policy grounds, deliberately simpler than any shipping DFR stack on every other axis.
+- **The "dispatch description → visual match" flow is supported by the vision-language ReID lineage** (CLIP-ReID, OWL-ViT, GroundingDINO). D-09's decision to move class off the detector and onto the fingerprint module has direct published backing. Future exp 11+ should consider CLIP-ReID embedding similarity as the primary match score, with HSV + geometry as a fallback.
+- **CV-06 tracker choice deserves revisiting.** ByteTrack is defensible, but BoT-SORT / StrongSORT are stronger fits for a moving-camera drone scenario (they explicitly add camera-motion compensation). Will revisit after the tracking experiment measures ByteTrack's ID-switch rate against the moving-camera baseline.
+- **CV-03's 85% mAP target is aspirational.** VisDrone SOTA sits at 45–55%; 85% assumes in-domain CARLA training exceeds that. Will be revalidated against the exp 08 fine-tune result, not taken as a fixed target.
+
+Going forward, every design log entry that proposes a cross-cutting mechanism should either cite the survey or add a new entry to it. Requirements reviews now include a "cited or flagged?" check per item.
+
 ### D-09 · Detector taxonomy: single class "vehicle"
 
 **Status:** Decided · **Date:** 2026-04-20
