@@ -7,6 +7,8 @@ mission:
   weather: ClearNoon           # SIM-06 — one of ClearNoon / CloudyNight / WetCloudyNoon
   output_root: /app/output/mission
   video_fps: 20                # matches carla.fixed_delta_seconds = 0.05
+  save_video: false            # default false — live view at http://localhost:5000 is the primary inspection path
+  mjpeg_port: 5000
 
   # Correctness gate — IoU between the fingerprint-locked tracker box and
   # the CARLA-GT projected suspect box, averaged over detected frames.
