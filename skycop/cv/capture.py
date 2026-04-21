@@ -23,7 +23,12 @@ import carla
 import cv2
 
 from skycop.control import AdaptiveAltitudeController, AltitudeConfig
-from skycop.cv.dataset import DatasetManifest, extract_yolo_labels_from_seg, write_yolo_label
+from skycop.cv.dataset import (
+    DatasetManifest,
+    extract_actor_boxes_from_seg,
+    extract_yolo_labels_from_seg,
+    write_yolo_label,
+)
 from skycop.cv.vehicle_classes import CLASS_NAMES, detector_class_for
 from skycop.sim import (
     SuspectParams,
@@ -288,6 +293,221 @@ def run_capture(
                 skip_counts=dict(manifest.skip_counts),
                 duration_s=elapsed,
                 output_dir=output_dir,
+            )
+
+        finally:
+            teardown_pursuit(client, world, tm, actors)
+
+
+@dataclass
+class TrackingCaptureResult:
+    run_id: str
+    seed: int
+    weather: str
+    frames_saved: int
+    suspect_actor_id: int
+    output_dir: Path
+    duration_s: float
+
+
+def run_tracking_capture(
+    cfg,
+    output_dir: Path,
+    *,
+    client: carla.Client,
+    run_id: str,
+    seed: int,
+    weather: str,
+    target_frames: int,
+    min_suspect_visibility: float = 0.05,
+    min_visibility_other: float = 0.3,
+    min_bbox_pixel: int = 20,
+    jpeg_quality: int = 92,
+) -> TrackingCaptureResult:
+    """Capture a continuous pursuit with per-frame ground-truth tracks.
+
+    Unlike ``run_capture`` (which subsamples and emits YOLO labels for
+    detector training), this writes every tick and records per-actor
+    ``{actor_id, bbox_px, visibility}`` GT so a tracker can be evaluated
+    against consistent actor identities across the sequence.
+
+    The suspect's GT bbox is always emitted even at low visibility (using
+    ``min_suspect_visibility``, default 0.05) so continuity can be scored
+    through partial occlusions. Other actors use a stricter threshold.
+
+    Output layout::
+
+        <output_dir>/
+          images/frame_NNNN.jpg
+          tracks.json   # {suspect_actor_id, frames: [{frame, tick, objects: [...]}]}
+          manifest.json
+    """
+    import json
+    output_dir = Path(output_dir)
+    img_dir = output_dir / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+
+    rng = random.Random(seed)
+    actors: list[carla.Actor] = []
+    world = ensure_map(client, cfg.carla.map)
+    world.set_weather(weather_preset(weather))
+
+    t0 = time.perf_counter()
+    saved = 0
+    tracks_record: list[dict] = []
+    suspect_actor_id = -1
+
+    with synchronous_mode(world, cfg.carla.fixed_delta_seconds):
+        tm = client.get_trafficmanager(cfg.carla.tm_port)
+        tm.set_synchronous_mode(True)
+        tm.set_random_device_seed(seed)
+
+        try:
+            npcs, remaining = spawn_npcs(world, tm, cfg.scene.npc_count, rng)
+            actors.extend(npcs)
+            log.info("[%s] spawned %d/%d NPCs", run_id, len(npcs), cfg.scene.npc_count)
+
+            suspect_params = SuspectParams(**dict(cfg.scene.suspect))
+            suspect = spawn_reckless_suspect(world, tm, remaining, rng, suspect_params)
+            actors.append(suspect)
+            suspect_actor_id = suspect.id
+            log.info("[%s] spawned suspect %s (id=%d)", run_id, suspect.type_id, suspect_actor_id)
+
+            tm.set_hybrid_physics_mode(True)
+            tm.set_hybrid_physics_radius(100.0)
+
+            rgb_cam, rgb_q = spawn_aerial_camera(
+                world, width=cfg.camera.width, height=cfg.camera.height, fov=cfg.camera.fov,
+            )
+            actors.append(rgb_cam)
+            seg_cam, seg_q = _spawn_instance_seg_camera(
+                world, width=cfg.camera.width, height=cfg.camera.height, fov=cfg.camera.fov,
+            )
+            actors.append(seg_cam)
+
+            altitude_ctrl = AdaptiveAltitudeController(world, AltitudeConfig(**dict(cfg.altitude)))
+
+            # Lookup which actor ids are vehicles (cached)
+            vehicle_ids: set[int] = set()
+
+            def is_vehicle(aid: int) -> bool:
+                if aid in vehicle_ids:
+                    return True
+                a = world.get_actor(aid)
+                if a is not None and a.type_id.startswith("vehicle."):
+                    vehicle_ids.add(aid)
+                    return True
+                return False
+
+            log.info("[%s] capturing %d frames (every tick)…", run_id, target_frames)
+
+            for tick in range(target_frames + 100):   # small buffer for dropped frames
+                loc = suspect.get_transform().location
+                target_z, _ = altitude_ctrl.step(loc.x, loc.y)
+                pose = carla.Transform(
+                    carla.Location(loc.x, loc.y, target_z),
+                    carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
+                )
+                rgb_cam.set_transform(pose)
+                seg_cam.set_transform(pose)
+
+                world.tick()
+
+                try:
+                    rgb_img = rgb_q.get(timeout=2.0)
+                    seg_img = seg_q.get(timeout=2.0)
+                except queue.Empty:
+                    continue
+
+                seg_bgr = carla_image_to_bgr(seg_img)
+                all_detections = extract_actor_boxes_from_seg(seg_bgr)
+
+                objects: list[dict] = []
+                suspect_emitted = False
+                for d in all_detections:
+                    if not is_vehicle(d.actor_id):
+                        continue
+                    bw = d.x2 - d.x1 + 1
+                    bh = d.y2 - d.y1 + 1
+                    if d.actor_id == suspect_actor_id:
+                        # Always emit the suspect, gated only on a very loose visibility
+                        if d.visibility < min_suspect_visibility:
+                            continue
+                        suspect_emitted = True
+                    else:
+                        if bw < min_bbox_pixel or bh < min_bbox_pixel:
+                            continue
+                        if d.visibility < min_visibility_other:
+                            continue
+                    objects.append({
+                        "actor_id": d.actor_id,
+                        "x1": d.x1, "y1": d.y1, "x2": d.x2, "y2": d.y2,
+                        "visibility": round(d.visibility, 4),
+                        "pixel_count": d.pixel_count,
+                        "is_suspect": d.actor_id == suspect_actor_id,
+                    })
+
+                # Save RGB + per-frame tracks
+                rgb_bgr = carla_image_to_bgr(rgb_img)
+                frame_id = f"frame_{saved:04d}"
+                cv2.imwrite(
+                    str(img_dir / f"{frame_id}.jpg"),
+                    rgb_bgr,
+                    [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality],
+                )
+                tracks_record.append({
+                    "frame": saved,
+                    "tick": tick,
+                    "suspect_present": suspect_emitted,
+                    "objects": objects,
+                })
+                saved += 1
+                if saved >= target_frames:
+                    break
+
+            elapsed = time.perf_counter() - t0
+            log.info(
+                "[%s] captured %d frames in %.1fs (%d frames with suspect visible)",
+                run_id, saved, elapsed,
+                sum(1 for r in tracks_record if r["suspect_present"]),
+            )
+
+            tracks_path = output_dir / "tracks.json"
+            with open(tracks_path, "w") as f:
+                json.dump({
+                    "run_id": run_id,
+                    "seed": seed,
+                    "weather": weather,
+                    "map_name": cfg.carla.map,
+                    "suspect_actor_id": suspect_actor_id,
+                    "suspect_type_id": suspect.type_id,
+                    "n_frames": saved,
+                    "frames": tracks_record,
+                }, f)
+
+            # Minimal manifest for human scanning
+            manifest_path = output_dir / "manifest.json"
+            with open(manifest_path, "w") as f:
+                json.dump({
+                    "run_id": run_id,
+                    "seed": seed,
+                    "weather": weather,
+                    "map_name": cfg.carla.map,
+                    "suspect_actor_id": suspect_actor_id,
+                    "n_frames": saved,
+                    "n_suspect_visible_frames": sum(
+                        1 for r in tracks_record if r["suspect_present"]
+                    ),
+                }, f, indent=2)
+
+            return TrackingCaptureResult(
+                run_id=run_id,
+                seed=seed,
+                weather=weather,
+                frames_saved=saved,
+                suspect_actor_id=suspect_actor_id,
+                output_dir=output_dir,
+                duration_s=elapsed,
             )
 
         finally:

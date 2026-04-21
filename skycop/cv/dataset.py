@@ -39,6 +39,60 @@ class BBox(NamedTuple):
 
 
 @dataclass
+class ActorDetection:
+    """Per-actor bbox in pixel coordinates, with visibility metadata.
+
+    Separate from ``BBox`` because tracking evaluation needs the raw actor
+    id + visibility info that the YOLO-normalized form strips out.
+    """
+    actor_id: int
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    visibility: float  # pixel_count / bbox_area ∈ (0, 1]
+    pixel_count: int
+
+
+def extract_actor_boxes_from_seg(seg_bgr: np.ndarray) -> list[ActorDetection]:
+    """Return per-actor bboxes from an instance-seg frame. No filtering.
+
+    The caller applies whatever min-pixel / min-visibility / class filters
+    their use case needs. Tracking evaluation wants raw output (suspect
+    always emitted even at low visibility); dataset collection wants
+    stricter filtering.
+
+    Encoding per ``extract_yolo_labels_from_seg``'s docstring: R=label,
+    G=actor_id_low, B=actor_id_high; ``actor_id = (B << 8) | G``.
+    """
+    b = seg_bgr[:, :, 0].astype(np.uint32)
+    g = seg_bgr[:, :, 1].astype(np.uint32)
+    actor_id = (b << 8) | g
+
+    out: list[ActorDetection] = []
+    unique_ids = np.unique(actor_id)
+    for aid in unique_ids:
+        if aid == 0:
+            continue
+        mask = actor_id == aid
+        ys, xs = np.where(mask)
+        if xs.size == 0:
+            continue
+        x_min, x_max = int(xs.min()), int(xs.max())
+        y_min, y_max = int(ys.min()), int(ys.max())
+        bw = x_max - x_min + 1
+        bh = y_max - y_min + 1
+        visibility = xs.size / float(bw * bh)
+        out.append(ActorDetection(
+            actor_id=int(aid),
+            x1=x_min, y1=y_min, x2=x_max, y2=y_max,
+            visibility=visibility,
+            pixel_count=int(xs.size),
+        ))
+    return out
+
+
+@dataclass
 class FrameStats:
     """Per-frame accounting of what was kept vs dropped, for diagnostics."""
     emitted: int = 0
