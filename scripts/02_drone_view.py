@@ -15,6 +15,7 @@ Controls:
   1-5     — switch maps (Town01-05)
 """
 
+import logging
 import math
 import queue
 import random
@@ -25,7 +26,10 @@ import carla
 from flask import jsonify, request
 
 from skycop.dashboard import MJPEGServer
+from skycop.logs import setup_logging
 from skycop.sim import carla_image_to_bgr, connect, spawn_aerial_camera, synchronous_mode
+
+log = logging.getLogger("exp02")
 
 # Movement settings
 MOVE_SPEED = 0.8       # metres per tick
@@ -147,7 +151,7 @@ def spawn_traffic(client, world, count=40):
             npc.set_autopilot(True, 8000)
             npc_actors.append(npc)
 
-    print(f"  Spawned {len(npc_actors)} NPC vehicles")
+    log.info("spawned %d NPC vehicles", len(npc_actors))
 
 
 def destroy_traffic():
@@ -159,7 +163,7 @@ def destroy_traffic():
             pass
     count = len(npc_actors)
     npc_actors = []
-    print(f"  Destroyed {count} NPC vehicles")
+    log.info("destroyed %d NPC vehicles", count)
 
 
 def reset_camera(world, spectator):
@@ -177,7 +181,7 @@ def carla_loop(server: MJPEGServer):
 
     client = connect()
     world = client.get_world()
-    print(f"Connected to CARLA — map: {world.get_map().name}")
+    log.info("connected to CARLA — map: %s", world.get_map().name)
 
     with synchronous_mode(world, FIXED_DT):
         spectator = world.get_spectator()
@@ -190,14 +194,14 @@ def carla_loop(server: MJPEGServer):
 
         camera, img_queue = reset_camera(world, spectator)
         map_keys = {"1": "Town01", "2": "Town02", "3": "Town03", "4": "Town04", "5": "Town05"}
-        print("Drone ready — open http://localhost:5000")
+        log.info("drone ready — open http://localhost:5000")
 
         try:
             while True:
                 # Map switch
                 for key, map_name in map_keys.items():
                     if key in keys_pressed:
-                        print(f"  Loading {map_name}...")
+                        log.info("loading %s…", map_name)
                         camera.stop()
                         camera.destroy()
                         destroy_traffic()
@@ -214,7 +218,7 @@ def carla_loop(server: MJPEGServer):
                             carla.Rotation(pitch=-30, yaw=sp.rotation.yaw),
                         ))
                         camera, img_queue = reset_camera(world, spectator)
-                        print(f"  Loaded {map_name}")
+                        log.info("loaded %s", map_name)
                         keys_pressed.discard(key)
                         break
 
@@ -283,10 +287,11 @@ def carla_loop(server: MJPEGServer):
             camera.stop()
             camera.destroy()
             destroy_traffic()
-            print("Drone stopped.")
+            log.info("drone stopped")
 
 
 def main():
+    setup_logging()
     server = MJPEGServer(title="SkyCop — Experiment 02", html=HTML_PAGE)
     # Add keyboard input route on the same Flask app.
     server.app.add_url_rule("/keys", "update_keys", update_keys, methods=["POST"])

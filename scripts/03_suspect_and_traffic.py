@@ -11,6 +11,7 @@ Closes the Environment milestone:
 Open http://localhost:5000 to watch the live top-down feed.
 """
 
+import logging
 import queue
 import random
 import time
@@ -19,6 +20,7 @@ import carla
 
 from skycop.config import load
 from skycop.dashboard import MJPEGServer
+from skycop.logs import setup_logging
 from skycop.sim import (
     SuspectParams,
     carla_image_to_bgr,
@@ -30,12 +32,14 @@ from skycop.sim import (
     teardown_pursuit,
 )
 
+log = logging.getLogger("exp03")
+
 
 def ensure_map(client, map_name):
     world = client.get_world()
     if map_name in world.get_map().name:
         return world
-    print(f"Loading {map_name}...")
+    log.info("loading map %s", map_name)
     return client.load_world(map_name)
 
 
@@ -53,12 +57,12 @@ def run(server: MJPEGServer, cfg):
         try:
             npcs, remaining = spawn_npcs(world, tm, cfg.scene.npc_count, rng)
             actors.extend(npcs)
-            print(f"Spawned {len(npcs)}/{cfg.scene.npc_count} NPCs")
+            log.info("spawned %d/%d NPCs", len(npcs), cfg.scene.npc_count)
 
             suspect_params = SuspectParams(**dict(cfg.scene.suspect))
             suspect = spawn_reckless_suspect(world, tm, remaining, rng, suspect_params)
             actors.append(suspect)
-            print(f"Spawned suspect {suspect.type_id} (id={suspect.id})")
+            log.info("spawned suspect %s (id=%d)", suspect.type_id, suspect.id)
 
             camera, img_queue = spawn_aerial_camera(
                 world,
@@ -68,7 +72,7 @@ def run(server: MJPEGServer, cfg):
             )
             actors.append(camera)
 
-            print("Running — http://localhost:5000")
+            log.info("running — http://localhost:5000")
 
             while True:
                 loc = suspect.get_transform().location
@@ -89,10 +93,11 @@ def run(server: MJPEGServer, cfg):
             pass
         finally:
             teardown_pursuit(client, world, tm, actors)
-            print("Stopped.")
+            log.info("stopped")
 
 
 def main():
+    setup_logging()
     cfg = load("default")
     server = MJPEGServer(
         title="SkyCop — Experiment 03",

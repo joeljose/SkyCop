@@ -1,7 +1,7 @@
 """
 Experiment 01 — Hello CARLA World
 
-Connects to the CARLA server, prints world info, spawns a vehicle with
+Connects to the CARLA server, logs world info, spawns a vehicle with
 an RGB camera, captures one frame using synchronous mode, and saves it.
 
 Key concepts:
@@ -12,25 +12,31 @@ Key concepts:
   - Proper actor cleanup (important: CARLA leaks GPU memory on sensors)
 """
 
+import logging
+import os
 import queue
 
 import carla
 
+from skycop.logs import setup_logging
 from skycop.sim import connect, synchronous_mode
 
 OUTPUT_DIR = "/app/output"
 
+log = logging.getLogger("exp01")
+
 
 def main():
+    setup_logging()
     actors = []
 
     try:
         client = connect()
         world = client.get_world()
 
-        print("Connected to CARLA!")
-        print(f"  Map:    {world.get_map().name}")
-        print(f"  Maps:   {client.get_available_maps()}")
+        log.info("connected to CARLA")
+        log.info("map:  %s", world.get_map().name)
+        log.info("maps: %s", client.get_available_maps())
 
         with synchronous_mode(world, fixed_delta_seconds=0.05):
             bp_lib = world.get_blueprint_library()
@@ -44,7 +50,7 @@ def main():
                 raise RuntimeError("Could not spawn vehicle at any point")
 
             actors.append(vehicle)
-            print(f"  Spawned: {vehicle.type_id} (id={vehicle.id})")
+            log.info("spawned: %s (id=%d)", vehicle.type_id, vehicle.id)
 
             camera_bp = bp_lib.find("sensor.camera.rgb")
             camera_bp.set_attribute("image_size_x", "1280")
@@ -63,11 +69,10 @@ def main():
 
             image = image_queue.get(timeout=5.0)
 
-            import os
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             out_path = f"{OUTPUT_DIR}/01_hello_world.png"
             image.save_to_disk(out_path)
-            print(f"  Saved: {out_path} ({image.width}x{image.height})")
+            log.info("saved: %s (%dx%d)", out_path, image.width, image.height)
 
     finally:
         for actor in reversed(actors):
@@ -76,7 +81,7 @@ def main():
             except Exception:
                 pass
 
-    print("Done! Your CARLA setup is working.")
+    log.info("done — CARLA setup is working")
 
 
 if __name__ == "__main__":
