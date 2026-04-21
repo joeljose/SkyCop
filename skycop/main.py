@@ -1,16 +1,18 @@
-"""SkyCop mission entrypoint — `python -m skycop.main`.
+"""SkyCop mission entrypoint — ``python -m skycop.main`` / ``make app``."""
 
-Placeholder until the full pipeline lands. For now, prints package state so
-`make app` has something real to invoke and operators can confirm the
-package is importable inside the container.
-"""
+import sys
 
-from skycop import __version__
+from skycop.config import load
+from skycop.logs import setup_logging
+from skycop.mission import run_mission
+
+sys.stdout.reconfigure(line_buffering=True)
 
 
 def main() -> None:
-    print(f"skycop v{__version__} — pipeline not yet wired.")
-    print("Run individual experiments with `make exp N=NN` (see `make exp-list`).")
+    setup_logging()
+    cfg = load("default", "detector", "training", "tracking", "mission")
+    run_mission(cfg)
 
 
 if __name__ == "__main__":

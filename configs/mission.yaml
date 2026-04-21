@@ -1,0 +1,19 @@
+# Mission v0 — drone-above-suspect pursuit.
+# Layered on top of configs/default.yaml + detector.yaml + training.yaml + tracking.yaml.
+
+mission:
+  duration_s: 60.0             # fixed-duration pursuit for v0 (FSM deferred)
+  altitude_m: 15.0             # SIM-11 open-road baseline; v0 pins altitude (bypasses adaptive controller)
+  weather: ClearNoon           # SIM-06 — one of ClearNoon / CloudyNight / WetCloudyNoon
+  output_root: /app/output/mission
+  video_fps: 20                # matches carla.fixed_delta_seconds = 0.05
+
+  # Correctness gate — IoU between the fingerprint-locked tracker box and
+  # the CARLA-GT projected suspect box, averaged over detected frames.
+  iou_correctness_threshold: 0.3
+  correctness_pass_bar: 0.80
+
+  fingerprint:
+    hsv_bins: 8                # 8x8x8 = 512-bin HSV histogram
+    score_threshold_rebind: 0.30  # min score to lock onto a candidate
+    score_stickiness: 0.05        # best must beat locked by this much to rebind
