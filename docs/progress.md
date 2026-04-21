@@ -16,14 +16,24 @@ Mirrors `REQUIREMENTS.md §14`. Each milestone is closed when its Definition of 
 |---|---|---|---|
 | Environment | ✅ | Town10, 50 NPCs, suspect, aerial camera streaming, adaptive altitude | exp 01–04 |
 | Detection | ✅ | YOLOv8s fine-tuned single-class `vehicle` (per D-09), ByteTrack integrated, mAP@0.5 = 0.962 same-map / 0.581 cross-map, suspect continuity max 0.996 | exp 05–10 ✅ |
-| Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | exp 12 planned |
-| Re-ID | 🔨 | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | exp 11 planned |
+| Suspect AI | ⬜ | 4-state FSM, dispatch / CCTV / witness events, parking lot pre-populated | Mission v1+ |
+| Re-ID | 🔨 | Fingerprint on first detection, occlusion recovery, parking-lot identification with confidence | Mission v0 (HSV only) ✅ · multi-attribute + dispatch bootstrap queued |
 | Dashboard | ⬜ | Streamlit live, manual mode playable, scoring, debrief | — |
 | Polish | ⬜ | Demo video, README, eval JSON, Docker tested, architecture diagram | — |
 
-## Experiments
+## Application development
 
-One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experiment hands to the next step.
+Experiment phase frozen at 10b. Further work happens inside the `skycop/` package and is validated by running the live mission (`make app`) and watching the video. Decision driven by exp 10b's finding that aggregate metrics hid a violent altitude oscillation we only saw on video — offline metrics aren't enough.
+
+| Unit | Purpose | Status | Produces |
+|---|---|---|---|
+| Mission v0 | Drone pinned above suspect · fine-tuned YOLO + ByteTrack · HSV fingerprint rebind · CARLA-GT scoring | ✅ | `output/mission/<ts>/mission.mp4` + `summary.json`; correctness **0.999** on default seed (1200 frames, 60 s, bus suspect) |
+| Mission v1 | Multi-attribute fingerprint · parking-mode pitch snap (−90°) · suspect FSM states | ⬜ | — |
+| Dashboard | Streamlit + event bus + scoring + debrief | ⬜ | — |
+
+## Experiments (historical)
+
+One row per `scripts/NN_*.py`. Frozen record; no new entries. "Produces" names the durable artifact the experiment hands to the next step.
 
 | # | Script | Purpose | Status | Produces |
 |---|---|---|---|---|
@@ -54,9 +64,12 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Exp 10 — ByteTrack + suspect-continuity eval: max continuity **0.996** (run_B), min **0.724** (run_A), mean 0.86 across 2 runs. Verdict **GOOD** (CV-07 ≥ 0.80 on at least one run).
 - [x] Exp 10b — tracker-trace diagnostic: `skycop/cv/tracker_viz` + `scripts/10b_tracker_trace.py`. Replays run_A through the tracker, renders an overlay video (GT bboxes + tracker bboxes + switch banner). **Findings (two, stacked):** (1) run_A's 14 id_switches are **one sustained mismatch starting at frame 233** (not 14 flickers); (2) inspecting the video exposed a **camera-altitude oscillation** in the capture itself — a 3-frame cycle of bbox heights ~40 / ~78 / ~94 px runs through the whole sequence, with the suspect bbox area growing ~30× in the 8 frames leading into frame 233. Root cause in `skycop/control/altitude.py:compute_target` — formula `s * previous + (1-s) * target` with `s = 0.2` gives 80 % weight to the new target, so `building_near` flickering between True/False drives the altitude between 15 m and 40 m tick-to-tick. The frame-233 rebind is a consequence of the scale jump, not a tracker defect. **Conclusion:** tracker is fine on this capture; exp 11 (fingerprint) is deferred until the capture itself is clean. Next unit is the altitude controller fix. Trace video: `output/eval/tracking/run_A/trace.mp4`. run_B skipped (tracks.json wiped during #25 investigation; regeneration blocked on #25 dual-sensor workaround).
 - [x] **teardown_pursuit dual-sensor crash — investigated, deferred.** Issue #25 attempted the "destroy sensors individually before batch" fix; E2E reproduced that the real cause is CARLA UE4 SIGSEGV (signal 11) on instance-seg camera destroy, not teardown ordering. Python client gets an uncatchable C++ `TimeoutException` → `terminate` (SIGABRT). Scope confined to dual-sensor offline captures (`run_capture`, `run_tracking_capture`); production mission uses single RGB per SIM-07 and is unaffected. Documented as `docs/carla_caveats.md` §6b. Proper workaround (server restart between runs) deferred until a new dual-sensor capture is actually needed.
-- [ ] Exp 11 — fingerprint (HSV colour + geometry, CV-11..16)
-- [ ] Exp 12 — first end-to-end mission
-- [ ] Exp 11-v2 *(conditional)* — re-fine-tune with multi-map training data if exp 09 visual inspection shows the 38-pt cross-map gap is operationally problematic
+- [x] **Pivot to application-driven development.** Experiments frozen at 10b. Further work lands inside `skycop/` and is validated by running `make app` and watching the video. Driven by 10b's finding that aggregate metrics hid a violent altitude oscillation — videos are now a first-class deliverable per run.
+- [x] **Mission v0** — `skycop/mission.py` + `skycop/cv/fingerprint.py` + `skycop/cv/gt_projection.py` + `configs/mission.yaml`. Drone pinned directly above suspect at 15 m / −75° (bypasses the adaptive altitude controller). Fine-tuned YOLO + ByteTrack, HSV-histogram fingerprint seeded at initial lock via CARLA-GT projection, sticky rebind each tick. Per-tick IoU correctness vs the GT-projected suspect bbox. **Result on default seed: correctness 0.999 (1198/1199) across 1200 frames / 60 s**; initial lock at frame 2; suspect was `vehicle.mitsubishi.fusorosa` (a bus — large, distinctive target, easy case). Artifacts at `output/mission/<ts>/mission.mp4` + `summary.json`. Single-sensor teardown exits clean (#25 dual-sensor bug inapplicable).
+- [ ] Mission v1 — multi-attribute fingerprint (roof shape, apparent size, speed/heading) · suspect FSM (Fleeing / Roaming / Parking / Parked) · parking-mode pitch snap to −90° (CV-26 / D-07)
+- [ ] Dispatch bootstrap — replace CARLA-GT seeding with dispatch metadata + last-known-location (FR-03)
+- [ ] Altitude-controller oscillation fix — queued for when the mission uses adaptive altitude (v0 pins it so doesn't need it)
+- [ ] Dashboard — Streamlit + event bus + scoring + debrief
 
 ### Detection baseline — exp 06 numbers (single-class taxonomy)
 
