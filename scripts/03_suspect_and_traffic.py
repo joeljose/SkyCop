@@ -23,11 +23,11 @@ from skycop.sim import (
     SuspectParams,
     carla_image_to_bgr,
     connect,
-    destroy_all,
     spawn_aerial_camera,
     spawn_npcs,
     spawn_reckless_suspect,
     synchronous_mode,
+    teardown_pursuit,
 )
 
 
@@ -88,11 +88,7 @@ def run(server: MJPEGServer, cfg):
         except KeyboardInterrupt:
             pass
         finally:
-            destroy_all(actors)
-            try:
-                tm.set_synchronous_mode(False)
-            except Exception:
-                pass
+            teardown_pursuit(client, world, tm, actors)
             print("Stopped.")
 
 

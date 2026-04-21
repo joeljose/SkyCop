@@ -45,11 +45,11 @@ from skycop.sim import (
     SuspectParams,
     carla_image_to_bgr,
     connect,
-    destroy_all,
     spawn_aerial_camera,
     spawn_npcs,
     spawn_reckless_suspect,
     synchronous_mode,
+    teardown_pursuit,
 )
 
 log = logging.getLogger("exp06")
@@ -297,15 +297,7 @@ def run_live_pursuit(
             log.info("metrics → %s", cfg.baseline.metrics_out)
 
         finally:
-            # Clean up TM state BEFORE destroying the hero actor it references
-            # (carla_caveats §10 — hybrid physics anchors on hero, attempting to
-            # reset after hero is gone triggers "destroyed actor" SIGABRT).
-            try:
-                tm.set_hybrid_physics_mode(False)
-                tm.set_synchronous_mode(False)
-            except Exception:
-                pass
-            destroy_all(actors)
+            teardown_pursuit(client, world, tm, actors)
 
     return result
 
