@@ -35,7 +35,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 | 06 | `yolo_baseline` | Pretrained YOLOv8s in-loop baseline — FPS/VRAM/mAP on exp 05 holdout | ✅ | `output/eval/baseline_metrics.json` |
 | 07 | `collect_training_data` | CARLA pursuit dataset — 10 runs × 500 frames across 3 weather presets | ✅ | `output/dataset/carla_pursuit/` (5000 jpg + 5000 txt + dataset_manifest.json) |
 | 08 | `finetune_yolo` | Fine-tune YOLOv8s on exp 07 dataset, score same-map + cross-map | ✅ | `output/weights/run_v1/weights/best.pt` + `output/eval/fine_tuned_metrics.json` + `output/eval/carla_eval_town01/` |
-| 09 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ⬜ | — |
+| 09 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ✅ | `output/eval/inloop_metrics.json` |
 | 10 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
 | 11 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
 | 12 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end | ⬜ | — |
@@ -49,8 +49,8 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Literature + industry survey (`docs/literature_survey.md`); REQUIREMENTS.md annotated with citations/flags; design log D-10
 - [x] **SIGABRT teardown fix** — `skycop.sim.teardown_pursuit` replaces ad-hoc cleanup in all pursuit callers. Exp 05 now exits clean (code 0). Sequence documented in `docs/carla_caveats.md` §6a.
 - [x] Exp 08 — Fine-tune YOLOv8s: same-map mAP@0.5 = 0.962, cross-map 0.581 (38-pt gap — real features learned + Town10HD overfit component). Design log D-11.
-- [ ] **Exp 09 — fine-tuned weights in live pipeline** (next; visual + FPS comparison vs baseline)
-- [ ] Exp 10 — ByteTrack integration
+- [x] Exp 09 — Fine-tuned in-loop inference: 25.0 FPS (baseline 26.2, delta −1.17), 13.9 ms mean detection, 0.042 GB peak VRAM — all within NFR-01/NFR-03. Live pursuit verified end-to-end.
+- [ ] **Exp 10 — ByteTrack (or BoT-SORT, per lit survey) integration** (next)
 - [ ] Exp 11 — fingerprint
 - [ ] Exp 12 — first end-to-end mission
 - [ ] Exp 11-v2 *(conditional)* — re-fine-tune with multi-map training data if exp 09 visual inspection shows the 38-pt cross-map gap is operationally problematic
@@ -69,6 +69,22 @@ Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pret
 | Predictions vs ground truths | 37 / 804 | — | Recall ≈ 4.6% — pretrained genuinely does not recognise aerial vehicles |
 
 **Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 08 targets this directly via in-domain CARLA fine-tuning.
+
+### Detection in-loop — exp 09 numbers
+
+Fine-tuned YOLOv8s weights from exp 08 dropped into the live pursuit pipeline. 60 s run, MJPEG overlay on `http://localhost:5000` during the run for visual check (can't be automated in metrics).
+
+| Metric | Pretrained baseline (exp 06) | Fine-tuned (exp 09) | Δ |
+|---|---|---|---|
+| Sustained FPS (60 s run) | 26.16 | **24.99** | −1.17 |
+| Detection mean | 11.80 ms | **13.93 ms** | +2.12 ms |
+| Detection p95 | 14.99 ms | 15.05 ms | +0.06 ms |
+| Peak VRAM (torch) | 0.032 GB | **0.042 GB** | +0.010 GB |
+| Frame total | 38.22 ms | 40.01 ms | +1.79 ms |
+
+Both comfortably inside the 18 FPS threshold and 5.5 GB VRAM budget. The small detection-time increase is most likely because the fine-tuned model emits higher-confidence detections that pass the 0.25 threshold (more boxes → more NMS work) rather than any architectural difference — same YOLOv8s, same fp16 path.
+
+Infrastructure refactor: `skycop/cv/inloop.py` now owns the live-pursuit measurement loop; both exp 06 and exp 09 call it. Previously exp 06 embedded ~100 lines of loop code inline.
 
 ### Detection fine-tune — exp 08 numbers
 
@@ -113,6 +129,7 @@ Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-21** · #21 — Exp 09: fine-tuned YOLOv8s in-loop inference. 25.0 FPS / 13.9 ms mean / 0.042 GB VRAM — all within NFR-01/NFR-03. Refactored live-pursuit measurement loop into `skycop.cv.inloop` shared by exp 06 and exp 09.
 - **2026-04-21** · #19 — Exp 08: YOLOv8s fine-tune. Same-map 0.962 / cross-map 0.581 / 38-pt gap (PARTIAL — genuine aerial features + Town10HD overfit). Design log D-11 documents cross-map probe methodology. `docker-compose.yml` gains `shm_size: 2gb` (PyTorch dataloader workers need ≥1 GB, 64 MB default stalls training at 0% GPU util).
 - **2026-04-20** · #15 — Proper CARLA pursuit teardown sequence (`skycop.sim.teardown_pursuit`); SIGABRT on cleanup resolved across all pursuit scripts; docs/carla_caveats.md §6a documents root cause + fix
 - **2026-04-20** · #13 — Literature + industry survey retrofit: `docs/literature_survey.md` + REQUIREMENTS.md citation audit + design log D-10
