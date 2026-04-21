@@ -47,7 +47,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] Exp 06 — Pretrained baseline: 26 FPS sustained, mAP@0.5 = 4.95% single-class (pretrained does not recognise aerial vehicles — ~5% recall is the real problem, class confusion is now off the board per D-09)
 - [x] Exp 07 — Training-data collection: 5000 frames across 10 runs, 3 weather presets, ~22,000 labels all class-0
 - [x] Literature + industry survey (`docs/literature_survey.md`); REQUIREMENTS.md annotated with citations/flags; design log D-10
-- [ ] **SIGABRT teardown fix** — proper fix for the `set_actor_simulate_physics` registry race on run cleanup (tracked for after survey)
+- [x] **SIGABRT teardown fix** — `skycop.sim.teardown_pursuit` replaces ad-hoc cleanup in all pursuit callers. Exp 05 now exits clean (code 0). Sequence documented in `docs/carla_caveats.md` §6a.
 - [ ] Exp 08 — Fine-tune YOLOv8s on the exp 07 dataset
 - [ ] Exp 09 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
 - [ ] Exp 10 — ByteTrack integration
@@ -94,6 +94,7 @@ Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #15 — Proper CARLA pursuit teardown sequence (`skycop.sim.teardown_pursuit`); SIGABRT on cleanup resolved across all pursuit scripts; docs/carla_caveats.md §6a documents root cause + fix
 - **2026-04-20** · #13 — Literature + industry survey retrofit: `docs/literature_survey.md` + REQUIREMENTS.md citation audit + design log D-10
 - **2026-04-20** · #11 — Exp 07: training-data collection (5000 frames, 10 runs, 3 weather presets); `skycop.cv.capture` helper + subprocess-per-run orchestrator; SIGABRT on CARLA teardown worked around but flagged for proper fix
 - **2026-04-20** · #9 — Detector taxonomy collapsed to single-class `vehicle`; fingerprint classes preserved for CV-12; eval holdout + baseline re-run under new taxonomy; design log D-09

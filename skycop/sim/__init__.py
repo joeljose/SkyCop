@@ -6,6 +6,7 @@ from skycop.sim.actors import (
     four_wheel_blueprints,
     spawn_npcs,
     spawn_reckless_suspect,
+    teardown_pursuit,
 )
 from skycop.sim.aerial_camera import carla_image_to_bgr, spawn_aerial_camera
 from skycop.sim.carla_env import connect, synchronous_mode
@@ -20,4 +21,5 @@ __all__ = [
     "SuspectParams",
     "destroy_all",
     "four_wheel_blueprints",
+    "teardown_pursuit",
 ]

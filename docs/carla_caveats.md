@@ -44,6 +44,24 @@ A practical reference for SkyCop (synchronous mode, 20 FPS, top-down RGB aerial-
 - Orphaned sensors also survive script crashes. On startup, iterate `world.get_actors().filter('sensor.*')` and destroy anything whose parent is gone.
 - **Source:** https://github.com/carla-simulator/carla/issues/1221 · https://carla.readthedocs.io/en/0.9.16/python_api/#carla.Client.apply_batch_sync
 
+### 6a. Pursuit-scene teardown order that avoids SIGABRT
+
+Empirically verified in SkyCop: running ad-hoc cleanup (`tm.set_hybrid_physics_mode(False)` → `tm.set_synchronous_mode(False)` → per-actor `.destroy()`) reliably produces `terminate called after throwing an instance of 'std::runtime_error' what(): Responding error from function set_actor_simulate_physics: Actor could not be found in the registry` on process exit (exit code `-6` / SIGABRT). Every CARLA script that spawns NPCs + hero + hybrid physics hit this at some point.
+
+Root cause: CARLA auto-destroys actors asynchronously (collisions, map-boundary, stale from earlier runs). The Traffic Manager keeps its own list of "my vehicles" that can include IDs CARLA has already removed from the registry. When `set_hybrid_physics_mode(False)` (or certain teardown paths) iterate the TM's list and call `set_actor_simulate_physics` on those stale IDs, CARLA throws a C++ `std::runtime_error` that Python can't catch.
+
+Working sequence (from SkyCop `skycop.sim.teardown_pursuit`):
+
+1. **Stop sensor listeners** — `sensor.stop()` before destroy, so in-flight callbacks don't race the teardown.
+2. **`tm.set_hybrid_physics_mode(False)` while vehicles are still attached** — the TM iterates *its* registered list at that moment, which is still coherent mid-run.
+3. **`apply_batch_sync([SetAutopilot(v.id, False) for v in vehicles], True)`** — detach vehicles from TM oversight in one atomic RPC.
+4. **Switch world + TM to async** — batch destroys in sync mode queue on the next tick and can deadlock; async destroys complete immediately.
+5. **`apply_batch_sync([DestroyActor(a.id) for a in reversed(actors)], True)`** — one atomic destroy for everything. No per-actor race.
+
+Always use this sequence when you've enabled hybrid physics or when you have > ~5 actors + sensors. For a single-vehicle-single-camera script, per-actor `.destroy()` is usually fine but costs you nothing to use the helper.
+
+- **Source:** [CARLA generate_traffic.py reference](https://github.com/carla-simulator/carla/blob/master/PythonAPI/examples/generate_traffic.py) · [apply_batch_sync docs](https://carla.readthedocs.io/en/0.9.16/python_api/#carla.Client.apply_batch_sync)
+
 ## 7. Blueprint attribute footguns
 
 - `role_name` has no effect on simulation — it is a free-form tag you set to find your own actors later. Hero-specific behaviour only triggers when `role_name == 'hero'` for some TM heuristics.

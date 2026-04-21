@@ -28,11 +28,11 @@ from skycop.cv.vehicle_classes import CLASS_NAMES, detector_class_for
 from skycop.sim import (
     SuspectParams,
     carla_image_to_bgr,
-    destroy_all,
     spawn_aerial_camera,
     spawn_npcs,
     spawn_reckless_suspect,
     synchronous_mode,
+    teardown_pursuit,
 )
 
 log = logging.getLogger(__name__)
@@ -291,9 +291,4 @@ def run_capture(
             )
 
         finally:
-            try:
-                tm.set_hybrid_physics_mode(False)
-                tm.set_synchronous_mode(False)
-            except Exception:
-                pass
-            destroy_all(actors)
+            teardown_pursuit(client, world, tm, actors)
