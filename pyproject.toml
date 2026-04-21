@@ -16,6 +16,8 @@ dependencies = [
     "omegaconf",
     "ultralytics",                 # YOLOv8 — pulls torch+torchvision (~800 MB on first build)
     "torchmetrics[detection]",     # mAP computation (the [detection] extra pulls pycocotools)
+    "lap>=0.5.12",                 # Hungarian assignment for ByteTrack (ultralytics lazy-loads it otherwise)
+    "scipy",                       # linear_sum_assignment for tracking_eval
 ]
 
 [project.optional-dependencies]

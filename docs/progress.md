@@ -36,7 +36,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 | 07 | `collect_training_data` | CARLA pursuit dataset — 10 runs × 500 frames across 3 weather presets | ✅ | `output/dataset/carla_pursuit/` (5000 jpg + 5000 txt + dataset_manifest.json) |
 | 08 | `finetune_yolo` | Fine-tune YOLOv8s on exp 07 dataset, score same-map + cross-map | ✅ | `output/weights/run_v1/weights/best.pt` + `output/eval/fine_tuned_metrics.json` + `output/eval/carla_eval_town01/` |
 | 09 | `yolo_inloop` | Fine-tuned weights live, boxes + conf overlaid on MJPEG (compare vs baseline visually and in FPS) | ✅ | `output/eval/inloop_metrics.json` |
-| 10 | `bytetrack` | Multi-object tracker on top of detections — persistent track IDs | ⬜ | — |
+| 10 | `bytetrack` | ByteTrack on detections + suspect-continuity eval | ✅ | `output/eval/tracking_metrics.json` + `output/eval/tracking/run_A,B/` |
 | 11 | `fingerprint` | HSV colour + geometry attributes per track (CV-11..16) | ⬜ | — |
 | 12 | `mission_tracer` | First end-to-end mission slice: dispatch → detect → track → mission-end | ⬜ | — |
 | 13 | `dashboard_scoring` | Streamlit + event bus + scoring + debrief | ⬜ | — |
@@ -50,7 +50,9 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [x] **SIGABRT teardown fix** — `skycop.sim.teardown_pursuit` replaces ad-hoc cleanup in all pursuit callers. Exp 05 now exits clean (code 0). Sequence documented in `docs/carla_caveats.md` §6a.
 - [x] Exp 08 — Fine-tune YOLOv8s: same-map mAP@0.5 = 0.962, cross-map 0.581 (38-pt gap — real features learned + Town10HD overfit component). Design log D-11.
 - [x] Exp 09 — Fine-tuned in-loop inference: 25.0 FPS (baseline 26.2, delta −1.17), 13.9 ms mean detection, 0.042 GB peak VRAM — all within NFR-01/NFR-03. Live pursuit verified end-to-end.
-- [ ] **Exp 10 — ByteTrack (or BoT-SORT, per lit survey) integration** (next)
+- [x] Exp 10 — ByteTrack + suspect-continuity eval: max continuity **0.996** (run_B), min **0.724** (run_A), mean 0.86 across 2 runs. Verdict **GOOD** (CV-07 ≥ 0.80 on at least one run).
+- [ ] **teardown_pursuit dual-sensor hang fix** — separate small PR; `apply_batch_sync` times out at 60 s after dual-RGB-seg every-tick captures; proposed fix: destroy heavy sensors individually before the batch to free render targets first.
+- [ ] Exp 11 — fingerprint (HSV colour + geometry, CV-11..16)
 - [ ] Exp 11 — fingerprint
 - [ ] Exp 12 — first end-to-end mission
 - [ ] Exp 11-v2 *(conditional)* — re-fine-tune with multi-map training data if exp 09 visual inspection shows the 38-pt cross-map gap is operationally problematic
@@ -69,6 +71,20 @@ Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pret
 | Predictions vs ground truths | 37 / 804 | — | Recall ≈ 4.6% — pretrained genuinely does not recognise aerial vehicles |
 
 **Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 08 targets this directly via in-domain CARLA fine-tuning.
+
+### Tracking — exp 10 numbers
+
+ByteTrack (Ultralytics' bundled) on fine-tuned YOLOv8s detections. Primary metric is **suspect track continuity** per D-11 — scene-wide HOTA/MOTA not computed because the mission cares about one track, not the whole scene. Two 250-frame captures across different seeds + weathers for hard-moment diversity.
+
+| Run | Seed | Weather | Suspect | Continuity | ID switches | Suspect present / detected / total |
+|---|---|---|---|---|---|---|
+| run_A | 300 | ClearNoon | dodge.charger_police | 0.724 | 14 | 237 / 221 / 250 |
+| run_B | 301 | WetCloudyNoon | jeep.wrangler_rubicon | **0.996** | 0 | 247 / 247 / 250 |
+| Mean | — | — | — | **0.860** | — | — |
+
+**Verdict: GOOD** (CV-07 compliance: continuity ≥ 0.80 on at least one run). Interesting delta between runs — run_B was essentially perfect, run_A had 14 ID switches caused by 16 frames of briefly-missed detections that ByteTrack's Kalman prediction couldn't hold through. Fingerprint module (exp 11) should close this gap via appearance-based re-ID across brief loss events.
+
+Known infra issue documented alongside: **`teardown_pursuit` hangs** when capturing with dual sensors (RGB + instance-seg) at every-tick rate for 250+ frames. `apply_batch_sync` times out at 60 s and SIGABRTs the process. Data survives (tracks.json is written before teardown), but the eval runs in a separate process after captures land on disk. Proper fix (destroy heavy sensors first before the batch) queued as a separate PR.
 
 ### Detection in-loop — exp 09 numbers
 
@@ -129,6 +145,7 @@ Diverse suspect vehicles drawn across runs (Ford Crown, Dodge Charger, Carlacola
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-21** · #23 — Exp 10: ByteTrack + suspect-continuity eval. Max 0.996 / mean 0.86. `skycop.cv.track` + `skycop.cv.tracking_eval` + `scripts/10_bytetrack.py`. Teardown-hang on dual-sensor captures documented for follow-up.
 - **2026-04-21** · #21 — Exp 09: fine-tuned YOLOv8s in-loop inference. 25.0 FPS / 13.9 ms mean / 0.042 GB VRAM — all within NFR-01/NFR-03. Refactored live-pursuit measurement loop into `skycop.cv.inloop` shared by exp 06 and exp 09.
 - **2026-04-21** · #19 — Exp 08: YOLOv8s fine-tune. Same-map 0.962 / cross-map 0.581 / 38-pt gap (PARTIAL — genuine aerial features + Town10HD overfit). Design log D-11 documents cross-map probe methodology. `docker-compose.yml` gains `shm_size: 2gb` (PyTorch dataloader workers need ≥1 GB, 64 MB default stalls training at 0% GPU util).
 - **2026-04-20** · #15 — Proper CARLA pursuit teardown sequence (`skycop.sim.teardown_pursuit`); SIGABRT on cleanup resolved across all pursuit scripts; docs/carla_caveats.md §6a documents root cause + fix

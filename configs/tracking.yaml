@@ -1,0 +1,28 @@
+# Tracking evaluation — exp 10.
+# Layered on top of configs/default.yaml + configs/altitude.yaml + configs/training.yaml.
+
+tracking:
+  # Two continuous captures with different seeds + weathers so hard moments
+  # (turns, occlusions, lighting shifts) arise from natural scene diversity.
+  holdout_output_dir: /app/output/eval/tracking
+  captures:
+    - {seed: 300, weather: ClearNoon,      frames: 250, run_id: run_A}
+    - {seed: 301, weather: WetCloudyNoon,  frames: 250, run_id: run_B}
+
+  # Visibility thresholds for GT extraction (suspect is always emitted
+  # even at low visibility so continuity can score through occlusions).
+  min_suspect_visibility: 0.05
+  min_visibility_other: 0.3
+  min_bbox_pixel: 20
+  jpeg_quality: 92
+
+  # ByteTrack via Ultralytics' bundled config. Override only if tuning shows
+  # we need it; defaults are fine for single-class aerial detection.
+  tracker_yaml: bytetrack.yaml
+
+  # IoU threshold for matching tracker output bboxes against GT bboxes
+  # during evaluation.
+  match_iou_threshold: 0.3
+
+  # Where to write the metrics JSON.
+  metrics_out: /app/output/eval/tracking_metrics.json
