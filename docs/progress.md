@@ -43,7 +43,7 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 ## Currently
 
 - [x] Exp 05 — CARLA pursuit eval holdout (200 frames, all 4 classes represented)
-- [x] Exp 06 — Pretrained baseline: 26 FPS sustained, mAP@0.5 = 1.89% (unfit for our domain as expected — class confusion + recall gap)
+- [x] Exp 06 — Pretrained baseline: 26 FPS sustained, mAP@0.5 = 4.95% single-class (pretrained does not recognise aerial vehicles — ~5% recall is the real problem, class confusion is now off the board per D-09)
 - [ ] **Exp 07 — Fine-tune YOLOv8s on in-app-captured CARLA pursuit data** (next; exp 06 confirmed pretrained baseline is not sufficient)
 - [ ] Exp 08 — fine-tuned weights in live pipeline (visual + FPS comparison vs baseline)
 - [ ] Exp 09 — ByteTrack integration
@@ -51,20 +51,20 @@ One row per `scripts/NN_*.py`. "Produces" names the durable artifact the experim
 - [ ] Exp 11 — first end-to-end mission
 - [ ] Follow-up chore — convert scripts 01–05 to `logging` (script 06 already on it)
 
-### Detection baseline — exp 06 numbers
+### Detection baseline — exp 06 numbers (single-class taxonomy)
 
-Pretrained COCO YOLOv8s on `output/eval/carla_eval/` (200 frames, 763 vehicle GT boxes):
+Re-run after the taxonomy collapse to single-class `vehicle` (design D-09). Pretrained COCO YOLOv8s on `output/eval/carla_eval/` (200 frames, 804 vehicle GT boxes):
 
 | Metric | Value | Threshold | Verdict |
 |---|---|---|---|
-| Sustained FPS (live pursuit, 60s) | 26.14 | ≥ 18 | ✅ plenty of headroom |
-| Detection mean / p95 | 11.86 / 15.14 ms | — | ✅ fits the 50 ms tick budget |
-| Peak VRAM (torch process) | 0.03 GB | ≤ 5.5 GB | ✅ (CARLA itself is the VRAM budget holder, not the model) |
-| mAP@0.5 on 3 classes (car/truck/bus) | **0.019** | — | ❌ pretrained unfit |
-| mAP@0.5:0.95 | 0.016 | — | ❌ |
-| Predictions vs ground truths | 44 / 763 | — | Recall ≈ 6%; class confusion on top |
+| Sustained FPS (live pursuit, 60s) | 25.63 | ≥ 18 | ✅ plenty of headroom |
+| Detection mean / p95 | 12.00 / 15.07 ms | — | ✅ fits the 50 ms tick budget |
+| Peak VRAM (torch process) | 0.03 GB | ≤ 5.5 GB | ✅ (CARLA itself dominates GPU, not the model) |
+| mAP@0.5 (single class `vehicle`) | **0.050** | — | ❌ pretrained unfit |
+| mAP@0.5:0.95 | 0.041 | — | ❌ |
+| Predictions vs ground truths | 37 / 804 | — | Recall ≈ 4.6% — pretrained genuinely does not recognise aerial vehicles |
 
-**Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles and confuses classes that it does see (vans called "trucks," buses missed). This is expected — COCO training data is ground-level photography at altitudes of metres, not tens-of-metres. Fine-tuning on in-domain CARLA data is the correct next step; VisDrone warm-start may be less useful than originally assumed given how different the actual operational distribution is.
+**Interpretation:** the pipeline works end-to-end at speed but the pretrained model sees only a tiny fraction of vehicles. The 4-class → 1-class collapse removed class-confusion as a confounding factor; the remaining 95% gap is pure recall. Exp 07 targets this directly via in-domain CARLA fine-tuning.
 
 ### Known gaps / debt
 
@@ -78,6 +78,7 @@ Pretrained COCO YOLOv8s on `output/eval/carla_eval/` (200 frames, 763 vehicle GT
 
 Reverse chronological. One line per landed PR.
 
+- **2026-04-20** · #9 — Detector taxonomy collapsed to single-class `vehicle`; fingerprint classes preserved for CV-12; eval holdout + baseline re-run under new taxonomy; design log D-09
 - **2026-04-20** · #7 — Exp 06: pretrained YOLOv8s baseline (FPS/VRAM + mAP on holdout); design log D-08; `skycop.logs` + `skycop.cv.inference` + `skycop.cv.eval`
 - **2026-04-20** · #5 — Aerial camera pitch −90° → −75° (design log D-07); eval holdout regenerated under the new operational distribution
 - **2026-04-20** · #3 — Exp 05: CARLA pursuit eval holdout capture + `skycop.cv.dataset` / `vehicle_classes`

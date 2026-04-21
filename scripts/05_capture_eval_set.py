@@ -29,8 +29,7 @@ from skycop.control import AdaptiveAltitudeController, AltitudeConfig
 from skycop.cv import (
     CLASS_NAMES,
     DatasetManifest,
-    class_index,
-    classify_blueprint,
+    detector_class_for,
     extract_yolo_labels_from_seg,
     write_yolo_label,
 )
@@ -55,11 +54,12 @@ def ensure_map(client, map_name):
 
 
 def make_actor_classifier(world):
-    """Return a cached actor_id → YOLO-class-index callable.
+    """Return a cached actor_id → detector-class-index callable.
 
-    Looks up the actor's blueprint, runs the substring classifier, and
-    caches the result. Actors absent (destroyed) or non-vehicle resolve
-    to None so the extractor skips their pixels.
+    Every detected vehicle maps to the single detector class (index 0).
+    The fine-grained fingerprint class (car/van/truck/bus) is still
+    available via ``classify_blueprint`` and will be recorded into the
+    manifest at fingerprint integration time, not here.
     """
     cache: dict[int, int | None] = {}
 
@@ -71,8 +71,7 @@ def make_actor_classifier(world):
             cache[aid] = None
             return None
         wheels = int(actor.attributes.get("number_of_wheels", "4"))
-        name = classify_blueprint(actor.type_id, wheels)
-        idx = class_index(name) if name is not None else None
+        idx = detector_class_for(actor.type_id, wheels)
         cache[aid] = idx
         return idx
 

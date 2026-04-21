@@ -12,8 +12,11 @@ from skycop.cv.inference import Detection, YoloDetector, coco_to_skycop_map
 from skycop.cv.vehicle_classes import (
     CLASS_INDEX,
     CLASS_NAMES,
+    FINGERPRINT_CLASSES,
+    FINGERPRINT_INDEX,
     class_index,
     classify_blueprint,
+    detector_class_for,
 )
 
 __all__ = [
@@ -24,8 +27,11 @@ __all__ = [
     "write_yolo_label",
     "CLASS_INDEX",
     "CLASS_NAMES",
+    "FINGERPRINT_CLASSES",
+    "FINGERPRINT_INDEX",
     "class_index",
     "classify_blueprint",
+    "detector_class_for",
     "Detection",
     "YoloDetector",
     "coco_to_skycop_map",
