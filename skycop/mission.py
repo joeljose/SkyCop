@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import queue
 import random
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +63,14 @@ from skycop.sim import (
     synchronous_mode,
     teardown_pursuit,
 )
+from skycop.sim.suspect_fsm import (
+    FSMConfig,
+    ParkingSubstate,
+    SuspectFSM,
+    SuspectState,
+    TMKnobs,
+)
+from skycop.vendor.carla_agents import GlobalRoutePlanner, LocalPlanner
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +100,10 @@ class MissionResult:
     video_path: str | None
     trace_path: str
     summary_path: str
+    # v0a (issue #44): suspect FSM outcome + per-state metrics.
+    fsm_submission: str | None       # "ai_pass" / "timeout_lose" / None
+    fsm_terminal_state: str          # final FSM state name
+    per_state: dict = field(default_factory=dict)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -105,8 +118,128 @@ def _camera_world_matrix(camera: carla.Actor) -> np.ndarray:
     return np.array(camera.get_transform().get_matrix(), dtype=np.float64)
 
 
+# ── FSM plumbing ──────────────────────────────────────────────────────
+
+def _build_fsm(suspect_cfg) -> SuspectFSM:
+    """Assemble a SuspectFSM from the OmegaConf `suspect` subtree."""
+    fsm_sec = suspect_cfg.fsm
+    knobs = suspect_cfg.knobs
+
+    def _knobs(block) -> TMKnobs:
+        return TMKnobs(
+            speed_over_pct=float(block.speed_over_pct),
+            ignore_lights_pct=float(block.ignore_lights_pct),
+            ignore_signs_pct=float(block.ignore_signs_pct),
+            lane_change_pct=float(block.lane_change_pct),
+            follow_dist_m=float(block.follow_dist_m),
+        )
+
+    def _xyz(p) -> tuple[float, float, float]:
+        return (float(p.x), float(p.y), float(p.z))
+
+    cfg = FSMConfig(
+        fleeing_duration_s=float(fsm_sec.fleeing_duration_s),
+        roaming_duration_s=float(fsm_sec.roaming_duration_s),
+        parking_lot_timeout_s=float(fsm_sec.parking_lot_timeout_s),
+        parking_roadside_timeout_s=float(fsm_sec.parking_roadside_timeout_s),
+        parked_confirm_timeout_s=float(fsm_sec.parked_confirm_timeout_s),
+        reach_distance_m=float(fsm_sec.reach_distance_m),
+        reach_speed_mps=float(fsm_sec.reach_speed_mps),
+        ai_consecutive_lock_ticks=int(fsm_sec.ai_consecutive_lock_ticks),
+        fleeing_knobs=_knobs(knobs.fleeing),
+        roaming_knobs=_knobs(knobs.roaming),
+        parking_lots=tuple(_xyz(p) for p in suspect_cfg.parking_lots),
+        roadside_spots=tuple(_xyz(p) for p in suspect_cfg.roadside_spots),
+    )
+    return SuspectFSM(cfg=cfg)
+
+
+def _apply_tm_knobs(
+    tm: carla.TrafficManager,
+    vehicle: carla.Actor,
+    knobs: TMKnobs,
+) -> None:
+    """Write the six TM knobs the FSM emits on state entry."""
+    tm.vehicle_percentage_speed_difference(vehicle, knobs.speed_over_pct)
+    tm.ignore_lights_percentage(vehicle, knobs.ignore_lights_pct)
+    tm.ignore_signs_percentage(vehicle, knobs.ignore_signs_pct)
+    tm.random_left_lanechange_percentage(vehicle, knobs.lane_change_pct)
+    tm.random_right_lanechange_percentage(vehicle, knobs.lane_change_pct)
+    tm.distance_to_leading_vehicle(vehicle, knobs.follow_dist_m)
+
+
+def _build_local_planner(
+    vehicle: carla.Actor,
+    grp: GlobalRoutePlanner,
+    dest_xyz: tuple[float, float, float],
+    target_speed_kmh: float,
+    sampling_resolution_m: float,
+    dt: float,
+) -> LocalPlanner:
+    """Route vehicle→destination and hand off to a fresh LocalPlanner.
+
+    The caller must have already called ``vehicle.set_autopilot(False)``
+    so the TM doesn't fight the planner.
+    """
+    dest_loc = carla.Location(*dest_xyz)
+    route = grp.trace_route(vehicle.get_location(), dest_loc)
+    planner = LocalPlanner(
+        vehicle,
+        opt_dict={
+            "target_speed": target_speed_kmh,
+            "dt": dt,
+            "sampling_radius": sampling_resolution_m,
+        },
+    )
+    planner.set_global_plan(route, stop_waypoint_creation=True)
+    return planner
+
+
+@dataclass
+class _PerStateAccum:
+    """Rolling accumulators so we can report id_accuracy etc. per FSM state."""
+    frames_total: int = 0
+    frames_visible: int = 0
+    frames_id_correct: int = 0
+    frames_in_frame: int = 0
+    distance_samples: list[float] = field(default_factory=list)
+
+    def finalise(self) -> dict:
+        id_acc = (
+            self.frames_id_correct / self.frames_visible
+            if self.frames_visible > 0 else None
+        )
+        in_frame_rate = (
+            self.frames_in_frame / self.frames_total
+            if self.frames_total > 0 else None
+        )
+        if self.distance_samples:
+            d_mean = float(np.mean(self.distance_samples))
+            d_p95 = float(np.percentile(self.distance_samples, 95.0))
+        else:
+            d_mean = d_p95 = None
+        return {
+            "frames_total": self.frames_total,
+            "frames_visible": self.frames_visible,
+            "id_accuracy": round(id_acc, 4) if id_acc is not None else None,
+            "in_frame_rate": round(in_frame_rate, 4) if in_frame_rate is not None else None,
+            "track_distance_mean_m": round(d_mean, 3) if d_mean is not None else None,
+            "track_distance_p95_m": round(d_p95, 3) if d_p95 is not None else None,
+        }
+
+
 def _fmt_score(s: float) -> str:
     return f"{s:.2f}"
+
+
+def _fsm_hud_line(fsm_tick) -> str:
+    """Short HUD string: FSM state + (substate or countdown)."""
+    state = fsm_tick.state.value
+    if fsm_tick.parking_substate is not None:
+        return f"{state}·{fsm_tick.parking_substate.value}"
+    if fsm_tick.countdown_s is not None:
+        return f"{state} {fsm_tick.countdown_s:4.1f}s"
+    return state
 
 
 def _render_mission_overlay(
@@ -118,6 +251,7 @@ def _render_mission_overlay(
     frame_idx: int,
     running_id_accuracy: float | None,
     drone_to_suspect_m: float | None = None,
+    hud_extra: str | None = None,
 ) -> np.ndarray:
     out = frame_bgr.copy()
     h, w = out.shape[:2]
@@ -155,6 +289,9 @@ def _render_mission_overlay(
     if drone_to_suspect_m is not None:
         cv2.putText(out, f"dist {drone_to_suspect_m:5.1f}m", (8, h - 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 80), 2, cv2.LINE_AA)
+    if hud_extra:
+        cv2.putText(out, hud_extra, (8, h - 84),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (120, 220, 255), 2, cv2.LINE_AA)
     return out
 
 
@@ -239,6 +376,14 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
         world = client.load_world(cfg.carla.map)
     world.set_weather(weather_preset(weather_name))
 
+    # Start trigger (v0a): mission blocks here until the user clicks
+    # "Start pursuit" on the MJPEG page (or instantly if the server wasn't
+    # constructed with use_start_trigger=True).
+    if mjpeg_server is not None and not mjpeg_server.started:
+        log.info("mission paused — waiting for /start click on the MJPEG page…")
+        mjpeg_server.wait_for_start()
+        log.info("start received; bringing up the scene")
+
     K = build_camera_matrix(int(cfg.camera.width), int(cfg.camera.height), float(cfg.camera.fov))
     image_size = (int(cfg.camera.height), int(cfg.camera.width))
 
@@ -282,7 +427,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 fp16=bool(cfg.training.half),
             )
 
-            log.info("altitude pinned to mission.altitude_m=%.1fm (per D-12)", altitude_m)
+            log.info("altitude pinned to mission.altitude_m=%.1fm (v0a bump — adaptive altitude is issue #45)", altitude_m)
 
             if save_video:
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -339,9 +484,23 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
             frames_in_frame = 0             # new — in_frame_rate numerator
             distance_samples: list[float] = []
 
-            target_ticks = int(duration_s / dt)
-            log.info("mission v1a: %.1fs / %d ticks / flight Kp=%.2f Kd=%.2f / feedforward=%s",
-                     duration_s, target_ticks, flight_Kp, flight_Kd, ff_enabled)
+            # ── Suspect FSM (v0a, issue #44) ──────────────────────
+            fsm = _build_fsm(cfg.suspect)
+            suspect_controller_cfg = cfg.suspect.controller
+            grp = GlobalRoutePlanner(
+                world.get_map(),
+                float(suspect_controller_cfg.sampling_resolution_m),
+            )
+            local_planner: LocalPlanner | None = None
+            per_state: dict[SuspectState, _PerStateAccum] = {
+                s: _PerStateAccum() for s in SuspectState
+            }
+            fsm_submission: str | None = None
+            fsm_terminal_state: SuspectState = SuspectState.FLEEING
+
+            target_ticks = int(duration_s / dt)   # safety cap; FSM terminal usually exits earlier
+            log.info("mission v0a: fsm + flight PID / safety cap %.1fs / Kp=%.2f Kd=%.2f",
+                     duration_s, flight_Kp, flight_Kd)
 
             trace_fh = open(trace_path, "w", buffering=1)
             t0 = time.perf_counter()
@@ -385,6 +544,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                     distance_samples.append(drone_to_suspect)
 
                     suspect_visible = gt_bbox is not None
+                    suspect_fully_in_frame = False
                     if suspect_visible:
                         frames_suspect_visible += 1
                         # Fully-in-frame check: project the 8 GT vertices un-clipped
@@ -401,6 +561,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                                 and vs.min() >= 0 and vs.max() <= image_size[0] - 1
                             ):
                                 frames_in_frame += 1
+                                suspect_fully_in_frame = True
 
                     # Detect + track.
                     tracks = adapter.update(frame_bgr)
@@ -514,14 +675,76 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                             pid_y.reset()
                             target_tracker.reset()
 
+                    # ── Suspect FSM step ─────────────────────────────────
+                    suspect_tf_now = suspect.get_transform()
+                    suspect_vel = suspect.get_velocity()
+                    suspect_speed = float(math.hypot(suspect_vel.x, suspect_vel.y))
+                    ai_lock_on_suspect = bool(
+                        suspect_visible
+                        and locked_track_id is not None
+                        and locked_track_id == gt_matched_track_id
+                    )
+                    fsm_tick = fsm.tick(
+                        t=float(tick) * dt,
+                        suspect_xy=(suspect_tf_now.location.x, suspect_tf_now.location.y),
+                        suspect_speed=suspect_speed,
+                        ai_lock_on_suspect=ai_lock_on_suspect,
+                    )
+
+                    # Side-effects requested by the FSM on state entries.
+                    act = fsm_tick.action
+                    if act.apply_tm_knobs is not None:
+                        _apply_tm_knobs(tm, suspect, act.apply_tm_knobs)
+                    if act.set_path_to is not None:
+                        # PARKING entry (trying_lot) OR roadside escalation — both
+                        # rebuild the LocalPlanner. We disable autopilot the first
+                        # time only.
+                        if local_planner is None:
+                            suspect.set_autopilot(False)
+                        local_planner = _build_local_planner(
+                            vehicle=suspect, grp=grp,
+                            dest_xyz=act.set_path_to,
+                            target_speed_kmh=float(suspect_controller_cfg.target_speed_kmh),
+                            sampling_resolution_m=float(suspect_controller_cfg.sampling_resolution_m),
+                            dt=dt,
+                        )
+                        log.info("FSM → PARKING: routing to %s", act.set_path_to)
+                    if act.freeze_physics:
+                        suspect.set_simulate_physics(False)
+                        log.info("FSM → PARKED: physics frozen, confirmation window open")
+
+                    # Drive the suspect during PARKING (off-autopilot); brake during
+                    # park_in_place. In PARKED we've frozen physics; apply a zero-
+                    # control so no residual command lingers.
+                    if fsm_tick.state == SuspectState.PARKING:
+                        if fsm_tick.parking_substate == ParkingSubstate.PARK_IN_PLACE:
+                            suspect.apply_control(carla.VehicleControl(brake=1.0))
+                        elif local_planner is not None:
+                            suspect.apply_control(local_planner.run_step())
+                    elif fsm_tick.state == SuspectState.PARKED:
+                        suspect.apply_control(carla.VehicleControl(brake=1.0))
+
+                    # Per-state metric accumulation — mirrors the aggregate counters.
+                    acc = per_state[fsm_tick.state]
+                    acc.frames_total += 1
+                    if suspect_visible:
+                        acc.frames_visible += 1
+                        if locked_track_id is not None and locked_track_id == gt_matched_track_id:
+                            acc.frames_id_correct += 1
+                        if suspect_fully_in_frame:
+                            acc.frames_in_frame += 1
+                    acc.distance_samples.append(drone_to_suspect)
+
                     # ── Overlay + live push ──────────────────────────────
                     running_id_accuracy = (
                         frames_id_correct / frames_suspect_visible
                         if frames_suspect_visible > 0 else None
                     )
+                    hud_extra = _fsm_hud_line(fsm_tick)
                     overlay = _render_mission_overlay(
                         frame_bgr, gt_bbox, tracks, locked_track_id, track_scores,
                         frames_total, running_id_accuracy, drone_to_suspect,
+                        hud_extra=hud_extra,
                     )
                     if video_writer is not None:
                         video_writer.write(overlay)
@@ -529,17 +752,38 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                         mjpeg_server.push(overlay)
 
                     # ── Per-tick trace ───────────────────────────────────
+                    # GT poses logged so we can reconstruct the scene offline
+                    # (e.g. to see where the suspect got stuck vs where the
+                    # drone hovered when the tracker drifted).
                     trace_fh.write(json.dumps({
                         "tick": tick,
+                        "drone_xy": [round(float(drone_pos_world[0]), 2),
+                                     round(float(drone_pos_world[1]), 2)],
+                        "suspect_xy": [round(suspect_tf_now.location.x, 2),
+                                       round(suspect_tf_now.location.y, 2)],
+                        "suspect_speed_mps": round(suspect_speed, 3),
+                        "suspect_yaw_deg": round(float(suspect_tf_now.rotation.yaw), 1),
                         "drone_to_suspect_m": round(drone_to_suspect, 3),
                         "center_offset_px": round(center_offset_px, 1),
                         "velocity_cmd_m_s": round(velocity_cmd_magnitude, 3),
                         "locked_track_id": locked_track_id,
                         "gt_matched_track_id": gt_matched_track_id,
                         "suspect_visible": bool(suspect_visible),
+                        "fsm_state": fsm_tick.state.value,
+                        "fsm_sub": (fsm_tick.parking_substate.value
+                                    if fsm_tick.parking_substate else None),
+                        "fsm_countdown_s": (round(fsm_tick.countdown_s, 2)
+                                            if fsm_tick.countdown_s is not None else None),
                     }) + "\n")
 
                     frames_total += 1
+
+                    fsm_terminal_state = fsm_tick.state
+                    if fsm_tick.terminal:
+                        fsm_submission = fsm_tick.submission
+                        log.info("FSM terminal at tick %d: submission=%s",
+                                 tick, fsm_submission)
+                        break
             finally:
                 trace_fh.close()
 
@@ -572,6 +816,8 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 in_frame_rate,
             )
 
+            per_state_summary = {s.value: per_state[s].finalise() for s in SuspectState}
+
             result = MissionResult(
                 run_id=run_id,
                 duration_s=elapsed,
@@ -592,7 +838,12 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 video_path=str(video_path) if save_video else None,
                 trace_path=str(trace_path),
                 summary_path=str(summary_path),
+                fsm_submission=fsm_submission,
+                fsm_terminal_state=fsm_terminal_state.value,
+                per_state=per_state_summary,
             )
+            log.info("FSM outcome: terminal_state=%s submission=%s",
+                     result.fsm_terminal_state, result.fsm_submission)
 
             with open(summary_path, "w") as f:
                 payload = asdict(result)

@@ -1,0 +1,59 @@
+# Suspect FSM — Mission v0a (issue #44).
+# Layered on top of configs/default.yaml + mission.yaml + control.yaml.
+#
+# See docs/design.md for the design decision record (mixed time/destination
+# transitions, 60 s confirmation rule, pass/fail via bbox-centre-in-GT).
+
+suspect:
+  fsm:
+    # Time-based transitions for the "driving" states. Seed values; user
+    # is the final judge on per-state metrics per the v0a grill.
+    fleeing_duration_s: 20.0
+    roaming_duration_s: 15.0
+
+    # PARKING is destination-bound: suspect routes via GlobalRoutePlanner to
+    # the nearest parking_lots spot; if routing takes > parking_lot_timeout_s
+    # without arrival, fall back to nearest roadside_spot; if THAT also times
+    # out, the mission loop just applies full brake ("park in place").
+    parking_lot_timeout_s: 60.0
+    parking_roadside_timeout_s: 30.0
+    reach_distance_m: 5.0         # LocalPlanner typically stops ~4 m short
+    reach_speed_mps: 0.5
+
+    # PARKED 60 s window for AI-submission (K consecutive ticks of valid lock).
+    parked_confirm_timeout_s: 60.0
+    ai_consecutive_lock_ticks: 3
+
+  # Per-state TrafficManager knobs (CARLA speed convention: negative = faster).
+  # Docs/carla_caveats §9.
+  knobs:
+    fleeing:
+      speed_over_pct: -80.0           # 80 % above speed limit
+      ignore_lights_pct: 100.0
+      ignore_signs_pct: 100.0
+      lane_change_pct: 50.0
+      follow_dist_m: 1.0
+    roaming:
+      speed_over_pct: 0.0             # at the speed limit
+      ignore_lights_pct: 0.0
+      ignore_signs_pct: 0.0
+      lane_change_pct: 0.0
+      follow_dist_m: 3.0
+
+  # PARKING destinations in Town10HD — hand-picked from spawn-point survey
+  # (scripts/11_parking_scout.py --scout). Suspect picks the NEAREST lot at
+  # PARKING entry; on timeout it escalates to the nearest roadside_spot.
+  # All on Driving lanes; GlobalRoutePlanner will route to each reliably.
+  parking_lots:
+    - {x: -24.34, y: -57.79, z: 0.60}     # Town10HD south side
+    - {x:  45.77, y: 137.46, z: 0.60}     # north side
+    - {x: -41.67, y:  89.75, z: 0.60}     # central
+  roadside_spots:
+    - {x: -110.20, y:  -9.84, z: 0.60}    # west corridor
+    - {x:   99.38, y:  -6.31, z: 0.60}    # east corridor
+    - {x:  -15.15, y:  69.71, z: 0.60}    # central corridor
+
+  # Custom-controller plumbing for PARKING. See skycop/vendor/carla_agents/.
+  controller:
+    target_speed_kmh: 22.0              # LocalPlanner cruise during PARKING
+    sampling_resolution_m: 2.0          # waypoint density from GlobalRoutePlanner

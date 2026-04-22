@@ -130,11 +130,11 @@ The suspect is unaware of the drone. Its behaviour is driven by a scripted finit
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| FR-07 | Suspect shall follow a 4-state FSM: **Fleeing → Roaming → Parking → Parked** | ⬜ Mission v0 uses TM autopilot with reckless knobs only |
-| FR-08 | **Fleeing:** suspect exceeds speed limit by 60–100%, runs red lights, changes lanes aggressively. The first violation triggers dispatch; after all violation reports for the current difficulty are sent, the roam timer starts. | 🔨 reckless-driving knobs in place; violation detection + dispatch pending |
-| FR-09 | **Roaming:** suspect continues driving at high speed along a randomised route through the city. This is the primary tracking window. Duration: configurable (default 60–120 seconds). | 🔨 TM reckless driving covers behaviour; FSM state + per-difficulty duration pending |
-| FR-10 | **Parking:** suspect drives to a pre-designated surface parking lot and pulls into a bay. Speed gradually decreases to normal during approach. | ⬜ |
-| FR-11 | **Parked:** suspect vehicle stops and remains stationary for the rest of the mission. The parking lot shall contain 20–40 other stationary vehicles with `set_simulate_physics(False)` to prevent drift. | ⬜ |
+| FR-07 | Suspect shall follow a 4-state FSM: **Fleeing → Roaming → Parking → Parked** | 🔨 v0a (PR #44) — `skycop.sim.suspect_fsm` ships all 4 states, mixed time/destination transitions, per-state metric breakdown |
+| FR-08 | **Fleeing:** suspect exceeds speed limit by 60–100%, runs red lights, changes lanes aggressively. The first violation triggers dispatch; after all violation reports for the current difficulty are sent, the roam timer starts. | 🔨 v0a covers reckless-driving knobs + time-based roam transition; violation detection + dispatch bootstrap (FR-03) remain pending |
+| FR-09 | **Roaming:** suspect continues driving at high speed along a randomised route through the city. This is the primary tracking window. Duration: configurable (default 60–120 seconds). | 🔨 v0a time-based (`configs/suspect.yaml:fsm.roaming_duration_s`); per-difficulty tuning pending |
+| FR-10 | **Parking:** suspect drives to a pre-designated surface parking lot and pulls into a bay. Speed gradually decreases to normal during approach. | 🔨 v0a destination-bound via vendored CARLA `GlobalRoutePlanner` + `LocalPlanner`; hand-picked waypoints (3 lots + 3 roadside spots) — lot-geometry inference still ⬜ |
+| FR-11 | **Parked:** suspect vehicle stops and remains stationary for the rest of the mission. The parking lot shall contain 20–40 other stationary vehicles with `set_simulate_physics(False)` to prevent drift. | 🔨 v0a freezes the suspect via `set_simulate_physics(False)` on PARKED entry; 20–40 parked-bystander vehicles deferred to the parking-lot-geometry follow-up |
 
 ### 3.4 Alert Events
 
