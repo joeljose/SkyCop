@@ -840,23 +840,21 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
 
                     # ── Overlay + live push ──────────────────────────────
                     # User mode: no tracker overlay, no GT bbox (user finds the
-                    # suspect themselves), no running accuracy (n/a).
+                    # suspect themselves), no running accuracy (n/a). FSM state
+                    # is shown by the big top-centre HTML panel, not the overlay.
                     running_id_accuracy = (
                         frames_id_correct / frames_suspect_visible
                         if frames_suspect_visible > 0 else None
                     )
-                    hud_extra = _fsm_hud_line(fsm_tick)
                     if mode == "user":
                         overlay = _render_mission_overlay(
                             frame_bgr, None, [], None, {},
                             frames_total, None, drone_to_suspect,
-                            hud_extra=hud_extra,
                         )
                     else:
                         overlay = _render_mission_overlay(
                             frame_bgr, gt_bbox, tracks, locked_track_id, track_scores,
                             frames_total, running_id_accuracy, drone_to_suspect,
-                            hud_extra=hud_extra,
                         )
                     if video_writer is not None:
                         video_writer.write(overlay)
