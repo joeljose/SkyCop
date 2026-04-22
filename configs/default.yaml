@@ -11,7 +11,7 @@ carla:
   fixed_delta_seconds: 0.05  # SIM-04 · 20 FPS
 
 scene:
-  npc_count: 50
+  npc_count: 20          # reduced from 50 for v0a demo — less traffic blocking the reckless suspect
   suspect:
     speed_over_pct: -80.0   # FR-08 · negative = faster, see carla_caveats §9
     ignore_lights_pct: 100.0

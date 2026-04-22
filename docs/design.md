@@ -442,9 +442,44 @@ Plus a per-tick `trace.jsonl` (`drone_to_suspect_m`, `center_offset_px`, `veloci
 
 ---
 
+### D-14 · Suspect FSM v0a — mixed transitions, custom PARKING controller, pass-fail confirmation
+
+**Status:** Decided · **Date:** 2026-04-22 · **Issue:** #44
+
+**Context.** Mission v1a (D-13) proved pursuit survives normal-autopilot driving (id_accuracy 0.975, track_distance p95 0.98 m). Before bootstrapping the dispatch flow we needed a gate: *if the drone can keep up through realistic suspect behaviour — aggressive, normal, parking — only then proceed*. That gate is the Suspect FSM (FR-07..11). v0a is the first slice; v0b/v0c add the menu and user-drone mode.
+
+**Decisions.**
+
+1. **Four states with mixed transition semantics.** FLEEING (time ~20 s) → ROAMING (time ~15 s) → PARKING (destination-bound) → PARKED (state-bound). Time-based FLEEING/ROAMING are sufficient for v0a metrics; PARKING is destination-bound because v0c will need a plausible parked pose for the user to click "Parked" on. Pure-time PARKING would park the suspect in the middle of a traffic lane.
+
+2. **PARKING escalation chain.** Primary target = nearest hand-picked parking-lot waypoint; on timeout, fallback to nearest roadside spot; on *that* timeout, full-brake "park in place." Either of the first two reaching destination (`dist ≤ reach_distance_m ∧ speed < reach_speed_mps`) enters PARKED. Park-in-place likewise enters PARKED once the vehicle has actually stopped. This keeps the "parks at a plausible spot" invariant without infinite mission loops when TM routing deviates.
+
+3. **Confirmation is pass-fail via bbox-centre-in-GT, not IoU.** On PARKED entry a 60 s countdown starts. AI mode submits automatically on the **first K=3 consecutive ticks of a valid lock** on the suspect track (K-voting ignores single-tick detector blips); v0c user mode will submit the drawn bbox on button click. Grading is the *same* rule in both modes: submission bbox centre must fall inside the suspect's GT-projected bbox — pass or fail, no threshold to invent. Failing to reach a parking lot is *not* a lose; only failing to confirm within 60 s post-PARKED is.
+
+4. **Custom PARKING controller via vendored CARLA LocalPlanner.** `TrafficManager.set_path()` is empirically broken in 0.9.13–0.9.16 (verified in `scripts/11_parking_scout.py` — sparse and dense waypoint lists both ignored by the TM). Route-to-destination requires bypassing the TM: at PARKING entry we `set_autopilot(False)` and drive the suspect with CARLA's own `LocalPlanner + VehiclePIDController`, fed by a `GlobalRoutePlanner` route. These live in CARLA's source tree but *not* in the pip-installed wheel, so we vendored them under `skycop/vendor/carla_agents/` (+ a three-line `_misc.py` subset + `road_option.py` enum extraction). License is MIT; `LICENSE_CARLA` records provenance. A hand-rolled pure-pursuit controller (`skycop.control.WaypointFollower`) was tried first and oscillated at tight corners — CARLA's PID is tuned for CARLA vehicle dynamics, ours was not.
+
+5. **Pure-logic FSM module, CARLA-aware mission loop.** `skycop.sim.suspect_fsm.SuspectFSM` is a pure state machine: observations in (`t`, `suspect_xy`, `suspect_speed`, `ai_lock_on_suspect`), side-effect *requests* out (`apply_tm_knobs`, `set_path_to`, `freeze_physics`). The mission loop translates those requests to CARLA calls (TM setters, LocalPlanner build, `set_simulate_physics(False)`). This keeps the FSM unit-testable with a fake clock (18 tests, no CARLA) while the mission side-effects stay at the boundary.
+
+6. **Start trigger at `POST /start`.** Mission waits on a `threading.Event` before spawning NPCs. The MJPEG server serves a splash page at `/` until the event fires, then the live feed. This is required so the operator can open the page *before* any ticks happen — useful for observation and screen capture, not for control.
+
+7. **Per-state metric breakdown in `summary.json`.** Each FSM state collects its own `{frames_total, frames_visible, id_accuracy, in_frame_rate, track_distance_mean/p95}`. Aggregate metrics still reported for continuity with v1a. Per-state numbers tell us *where* the pipeline struggles (e.g., FLEEING might drop in_frame_rate on sharp turns); aggregate numbers alone can't.
+
+8. **Exploratory metrics — no hard numeric gate.** v0a doesn't auto-pass/fail on per-state thresholds. User is final judge watching the MJPEG feed and the numbers side-by-side. Rationale: thresholds picked before data are guesses; thresholds picked from the first run are post-hoc. For v0a we just collect and look.
+
+**Deferred from v0a (explicit non-goals).**
+
+- **v0b** — menu page with mode selector, "Start" as the only control; currently the start trigger is the only UI.
+- **v0c** — user-controlled drone mode + draw-bbox submission UI for the pursuit game.
+- **FR-11 parking-lot geometry** — v0a uses hand-picked Town10HD spawn points rather than inferred lot polygons.
+- **CV-26 nadir pitch snap** — PARKED continues at pitch −75°.
+- **CV-27..32 parked-suspect re-ID** — once PARKED, tracker is still regular ByteTrack + HSV; no re-ID pipeline.
+- **Dispatch bootstrap (FR-03)** — drone still cold-starts at suspect's XY in v0a.
+
+---
+
 ## 13. Open Questions
 
-- **Suspect FSM owner.** Scripts 03/04 use TM autopilot with reckless knobs. The proper Fleeing→Roaming→Parking→Parked FSM (FR-07..11) is deferred. Lives in `skycop.sim.suspect_fsm` (module to be created) or bespoke per-script? Leaning on the module.
+- **Suspect FSM owner.** ~~Scripts 03/04 use TM autopilot with reckless knobs. The proper Fleeing→Roaming→Parking→Parked FSM (FR-07..11) is deferred.~~ Resolved by D-14 — FSM lives in `skycop.sim.suspect_fsm`, CARLA side-effects in the mission loop.
 - **Frame-level ground truth export.** For CV evaluation (CM-07..09), we'll need per-frame CARLA ground-truth dumps. Format — JSONL alongside frames, or a single run-level file? Format affects downstream tooling.
 - **Human-vs-autonomous replay.** §6.4 demands both modes play the same scenario for comparison. Do we record inputs and replay, or re-seed and re-run? Replay is robust to non-determinism in renderer (caveat §17) but requires an input-logging layer.
 - **Evaluation artifact shape.** §12 lists metrics to log; shape is undecided. A single `eval.json` per run, or time-series parquet? Small to start; parquet only if dashboards demand it.

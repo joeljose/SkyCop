@@ -2,8 +2,8 @@
 # Layered on top of configs/default.yaml + detector.yaml + training.yaml + tracking.yaml.
 
 mission:
-  duration_s: 60.0             # fixed-duration pursuit for v0 (FSM deferred)
-  altitude_m: 15.0             # SIM-11 — pinned baseline. Adaptive altitude dropped per D-12.
+  duration_s: 240.0            # safety cap (v0a FSM usually terminates earlier on AI submission or 60s PARKED timeout)
+  altitude_m: 25.0             # v0a bump 15→25 — clears the Town10HD monorail/walkway overpasses (Buildings@12.3m, RailTrack@7.2m). D-12 superseded; see issue #45 for adaptive altitude follow-up.
   weather: ClearNoon           # SIM-06 — one of ClearNoon / CloudyNight / WetCloudyNoon
   output_root: /app/output/mission
   video_fps: 20                # matches carla.fixed_delta_seconds = 0.05
@@ -26,5 +26,5 @@ mission:
 
   fingerprint:
     hsv_bins: 8                # 8x8x8 = 512-bin HSV histogram
-    score_threshold_rebind: 0.30  # min score to lock onto a candidate
-    score_stickiness: 0.05        # best must beat locked by this much to rebind
+    score_threshold_rebind: 0.50  # v0a: raised 0.30 → 0.50 to resist rebind-to-lookalike during occlusions
+    score_stickiness: 0.15        # v0a: raised 0.05 → 0.15 so current lock wins unless a candidate is clearly better
