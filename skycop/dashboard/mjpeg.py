@@ -444,6 +444,22 @@ class MJPEGServer:
         with self._lock:
             self._submission = None
 
+    def reset_for_menu(self) -> None:
+        """Rearm the server for a fresh round: clear the start event, drop
+        held keys, clear any pending submission, and reset the FSM snapshot
+        so the page shows the splash menu again and ``wait_for_start()``
+        blocks until the user picks a mode a second time.
+        """
+        with self._lock:
+            self._start_event.clear()
+            self._pressed.clear()
+            self._submission = None
+            self._fsm_state = "fleeing"
+            self._fsm_countdown_s = None
+            self._fsm_terminal = False
+            self._fsm_result = None
+            self._started_mode = "ai"
+
     # ── MJPEG plumbing ──────────────────────────────────────────────
 
     def _generate(self):

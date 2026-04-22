@@ -32,9 +32,22 @@ def main() -> None:
     )
     server.start(port=port)
     log.info("live view + start page: http://localhost:%d", port)
-    log.info("waiting for start click…")
 
-    run_mission(cfg, mjpeg_server=server)
+    # Replay loop: each mission ends with a "Back to menu" link in the end
+    # modal. We rearm the server so the menu shows again, then block on the
+    # next start click. Ctrl-C in the terminal to quit the process.
+    round_num = 1
+    while True:
+        log.info("round %d — waiting for start click…", round_num)
+        try:
+            run_mission(cfg, mjpeg_server=server)
+        except KeyboardInterrupt:
+            log.info("KeyboardInterrupt — exiting")
+            return
+        except Exception:
+            log.exception("mission crashed — resetting for next round")
+        server.reset_for_menu()
+        round_num += 1
 
 
 if __name__ == "__main__":
