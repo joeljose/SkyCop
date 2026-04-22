@@ -76,7 +76,7 @@ def ensure_crossmap_probe(cfg) -> Path:
              cfg.crossmap_probe.map, cfg.crossmap_probe.seed, cfg.crossmap_probe.weather)
 
     # The probe needs a CARLA connection. Override the default map for this call.
-    probe_cfg = load("default", "altitude")
+    probe_cfg = load("default")
     probe_cfg.carla.map = cfg.crossmap_probe.map
 
     client = connect(host=probe_cfg.carla.host, port=probe_cfg.carla.port)
@@ -154,7 +154,7 @@ def save_metrics_atomic(data: dict, out_path: Path) -> None:
 
 def main():
     setup_logging()
-    cfg = load("default", "altitude", "training_dataset", "training")
+    cfg = load("default", "training_dataset", "training")
 
     # 1. Dataset YAML
     yaml_path = prepare_dataset_yaml(cfg)

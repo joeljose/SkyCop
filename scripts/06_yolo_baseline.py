@@ -131,7 +131,7 @@ def save_metrics_atomic(metrics: dict, out_path: Path) -> None:
 
 def main():
     setup_logging()
-    cfg = load("default", "altitude", "detector")
+    cfg = load("default", "detector")
     detector = build_detector(cfg)
 
     log.info("loading detector weights: %s", cfg.detector.weights)

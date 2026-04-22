@@ -56,7 +56,7 @@ def load_baseline_live(path: Path) -> dict:
 
 def main():
     setup_logging()
-    cfg = load("default", "altitude", "detector", "training")
+    cfg = load("default", "detector", "training")
 
     weights_path = Path(cfg.training.project) / cfg.training.name / "weights" / "best.pt"
     if not weights_path.exists():

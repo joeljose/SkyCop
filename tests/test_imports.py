@@ -23,6 +23,5 @@ def test_dashboard_imports():
     assert server.app is not None
 
 
-def test_cv_control_stubs_import():
-    import skycop.control  # noqa: F401
+def test_cv_stubs_import():
     import skycop.cv  # noqa: F401

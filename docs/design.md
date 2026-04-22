@@ -367,6 +367,41 @@ Chose (c) at −75° as the operational default, with an explicit mode transitio
 
 **How to reinstate −90°.** The value is in `configs/default.yaml` under `camera.pitch`. Parking-phase snap will be a single reassignment when the suspect velocity drops below 2 km/h for 3 s (CV-26), implemented in the mission FSM — altitude also drops to ~10m at that time so the nadir view still gives useful re-ID resolution.
 
+### D-12 · Adaptive altitude dropped — altitude pinned for road-following pursuit
+
+**Status:** Decided · **Date:** 2026-04-22
+
+**Context.** SIM-11/12/14 specified an adaptive altitude scheme: 15 m over open roads, climb to 40 m when 8-ray lateral raycasts detect a building within 20 m, with a 12 m rooftop-clearance overlay. PR #35 added a measurement harness that traced actual altitude behaviour under this controller and found:
+
+- Period-2 oscillation on every run (altitude swinging 15→35→15 m every 100 ms).
+- Per-tick altitude jumps up to 19.4 m (p95) — the `0.8 × (40 − 15)` artefact of the formula direction.
+- `building_near` fraction 50–65 % almost everywhere (Town10 is dense — lateral rays almost always hit something).
+- Correctness dropped from 0.999 (pinned) to 0.64–0.95 as altitude variance broke ByteTrack IoU association.
+
+**Investigation.** Queried Town10HD geometry directly via `world.get_level_bbs(carla.CityObjectLabel.Buildings)` + `.Bridge` + `.Static`:
+
+| Label | Count |
+|---|---|
+| `Buildings` | 781 |
+| `Bridge` | **0** |
+| `Static` | 667 |
+| `Poles` | 880 |
+
+Only **7 obstacles** cross the drone's 10–20 m flight band AND sit within 8 m of a drivable road — all of them are regular building *walls* adjacent to roads, not decks spanning over them. The skyscrapers (up to 200 m) are set back from the road network.
+
+**Rationale.** Two stacked reasons for dropping the scheme:
+
+1. **No over-road obstacles.** A drone whose XY tracks a road-bound vehicle cannot collide with any Town10HD structure at 15 m altitude, because the only risks are walls *beside* roads and the drone is never over them.
+2. **Forward-ray would false-positive at every turn.** Even the narrower "forward raycast along suspect heading" proposal fires spuriously at every T-junction, 4-way intersection, and curve — the road ends at a building across the intersection, the ray hits that building, but the suspect turns before reaching it. The climb would be wasted and the altitude swings would be just as jarring.
+
+**Decision.** Drop adaptive altitude entirely. Pin the drone at `mission.altitude_m` (15 m default). If we ever load a map with actual over-road structures (skyways, elevated highways with low clearance), revisit based on that map's geometry — not on a speculative requirement.
+
+**Deletions.** `skycop/control/`, `skycop/analysis/altitude_trace.py`, `configs/altitude.yaml`, `tests/test_altitude*.py`, `scripts/04_adaptive_altitude.py`, and the `control_mode` config flag. Legacy CV helpers (`skycop/cv/capture.py`, `skycop/cv/inloop.py`) switched to `cfg.camera.altitude` as a fixed pin.
+
+**Requirement fate.** SIM-11 / SIM-12 / SIM-14 marked superseded in REQUIREMENTS.md §5.3. SIM-13 (hard clamp 10–60 m) kept as a documented envelope even though no logic enforces it with altitude pinned.
+
+**Restoration path.** If adaptive altitude becomes necessary (new map, new mission shape), start from data: query the target map's geometry, classify which structures actually sit over drivable roads, and design a trigger against *those* specific classes — not a generic "building within 20 m" proxy.
+
 ---
 
 ## 13. Open Questions

@@ -165,7 +165,7 @@ def diagnose_run(run_dir: Path, adapter: ByteTrackAdapter, iou_threshold: float)
 
 def main():
     setup_logging()
-    cfg = load("default", "altitude", "detector", "training_dataset", "training", "tracking")
+    cfg = load("default", "detector", "training_dataset", "training", "tracking")
 
     weights_path = Path(cfg.training.project) / cfg.training.name / "weights" / "best.pt"
     if not weights_path.exists():

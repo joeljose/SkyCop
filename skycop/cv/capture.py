@@ -22,7 +22,6 @@ from pathlib import Path
 import carla
 import cv2
 
-from skycop.control import AdaptiveAltitudeController, AltitudeConfig
 from skycop.cv.dataset import (
     DatasetManifest,
     extract_actor_boxes_from_seg,
@@ -216,16 +215,17 @@ def run_capture(
             )
             actors.append(seg_cam)
 
-            altitude_ctrl = AdaptiveAltitudeController(world, AltitudeConfig(**dict(cfg.altitude)))
+            # Altitude pinned per D-12 — adaptive altitude controller dropped
+            # (empirically unnecessary on Town10HD per the REQUIREMENTS audit).
+            pinned_altitude = float(cfg.camera.altitude)
             classify = _make_actor_classifier(world)
 
             log.info("[%s] capturing up to %d frames…", run_id, target_frames)
 
             for tick in range(max_ticks):
                 loc = suspect.get_transform().location
-                target_z, _ = altitude_ctrl.step(loc.x, loc.y)
                 pose = carla.Transform(
-                    carla.Location(loc.x, loc.y, target_z),
+                    carla.Location(loc.x, loc.y, loc.z + pinned_altitude),
                     carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 )
                 rgb_cam.set_transform(pose)
@@ -264,7 +264,7 @@ def run_capture(
                     index=saved,
                     tick=tick,
                     camera_pose={
-                        "x": loc.x, "y": loc.y, "z": target_z,
+                        "x": loc.x, "y": loc.y, "z": loc.z + pinned_altitude,
                         "pitch": float(cfg.camera.pitch), "yaw": 0.0,
                     },
                     suspect_pose={"x": loc.x, "y": loc.y, "z": loc.z},
@@ -385,7 +385,8 @@ def run_tracking_capture(
             )
             actors.append(seg_cam)
 
-            altitude_ctrl = AdaptiveAltitudeController(world, AltitudeConfig(**dict(cfg.altitude)))
+            # Altitude pinned per D-12.
+            pinned_altitude = float(cfg.camera.altitude)
 
             # Lookup which actor ids are vehicles (cached)
             vehicle_ids: set[int] = set()
@@ -403,9 +404,8 @@ def run_tracking_capture(
 
             for tick in range(target_frames + 100):   # small buffer for dropped frames
                 loc = suspect.get_transform().location
-                target_z, _ = altitude_ctrl.step(loc.x, loc.y)
                 pose = carla.Transform(
-                    carla.Location(loc.x, loc.y, target_z),
+                    carla.Location(loc.x, loc.y, loc.z + pinned_altitude),
                     carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 )
                 rgb_cam.set_transform(pose)
