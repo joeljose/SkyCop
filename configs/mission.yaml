@@ -3,7 +3,7 @@
 
 mission:
   duration_s: 240.0            # safety cap (v0a FSM usually terminates earlier on AI submission or 60s PARKED timeout)
-  altitude_m: 25.0             # v0a bump 15→25 — clears the Town10HD monorail/walkway overpasses (Buildings@12.3m, RailTrack@7.2m). D-12 superseded; see issue #45 for adaptive altitude follow-up.
+  altitude_m: 40.0             # v0c bump 25→40 — wider FOV for the eventual dispatch search phase and more clearance above Town10HD overhead structures (tallest over-road deck is 12.3 m). Adaptive per-phase altitude (scan-high at dispatch, pursuit-low, climb-over on obstacle approach) is issue #45. D-12 superseded.
   weather: ClearNoon           # SIM-06 — one of ClearNoon / CloudyNight / WetCloudyNoon
   output_root: /app/output/mission
   video_fps: 20                # matches carla.fixed_delta_seconds = 0.05
