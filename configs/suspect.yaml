@@ -8,7 +8,7 @@ suspect:
   fsm:
     # Time-based transitions for the "driving" states. Seed values; user
     # is the final judge on per-state metrics per the v0a grill.
-    fleeing_duration_s: 20.0
+    fleeing_duration_s: 40.0
     roaming_duration_s: 15.0
 
     # PARKING is destination-bound: suspect routes via GlobalRoutePlanner to
@@ -28,7 +28,7 @@ suspect:
   # Docs/carla_caveats §9.
   knobs:
     fleeing:
-      speed_over_pct: -80.0           # 80 % above speed limit
+      speed_over_pct: -100.0          # 100 % above speed limit — visibly speeding
       ignore_lights_pct: 100.0
       ignore_signs_pct: 100.0
       lane_change_pct: 50.0
