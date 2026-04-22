@@ -28,12 +28,29 @@ def main() -> None:
         title="SkyCop Pursuit",
         hud="AI drone pursuit · live MJPEG feed",
         use_start_trigger=True,
+        image_size=(int(cfg.camera.height), int(cfg.camera.width)),
     )
     server.start(port=port)
     log.info("live view + start page: http://localhost:%d", port)
-    log.info("waiting for start click…")
 
-    run_mission(cfg, mjpeg_server=server)
+    # Replay loop: each mission ends with a "Back to menu" link in the end
+    # modal. We rearm the server so the menu shows again, then block on the
+    # next start click. Ctrl-C in the terminal to quit the process.
+    round_num = 1
+    while True:
+        log.info("round %d — waiting for start click…", round_num)
+        try:
+            run_mission(cfg, mjpeg_server=server)
+        except KeyboardInterrupt:
+            log.info("KeyboardInterrupt — exiting")
+            return
+        except Exception:
+            log.exception("mission crashed — resetting for next round")
+        # Between-round rearm: clears the start event so the next round
+        # blocks on wait_for_start, but keeps the prior round's end modal
+        # state visible to the page until the user clicks "Back to menu".
+        server.rearm_start_event()
+        round_num += 1
 
 
 if __name__ == "__main__":

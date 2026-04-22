@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "opencv-python-headless",
     "flask",
+    "flask-sock",                  # v0c: WebSocket input for manual drone mode
     "omegaconf",
     "ultralytics",                 # YOLOv8 — pulls torch+torchvision (~800 MB on first build)
     "torchmetrics[detection]",     # mAP computation (the [detection] extra pulls pycocotools)
