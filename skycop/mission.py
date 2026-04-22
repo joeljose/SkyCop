@@ -345,6 +345,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     flight_cfg = ctrl_cfg.flight
     ff_cfg = ctrl_cfg.feedforward
     hlk_cfg = ctrl_cfg.hold_last_known
+    dr_cfg = ctrl_cfg.get("dead_reckon", {"enabled": False, "max_seconds": 0.0})
     ground_z = float(ctrl_cfg.ground_plane.z)
     flight_Kp = float(flight_cfg.Kp)
     flight_Ki = float(flight_cfg.Ki)
@@ -353,6 +354,9 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     flight_int_clamp = float(flight_cfg.integral_clamp)
     ff_enabled = bool(ff_cfg.enabled)
     ff_scale = float(ff_cfg.scale)
+    dr_enabled = bool(dr_cfg.enabled)
+    dr_max_seconds = float(dr_cfg.max_seconds)
+    dr_velocity_gain = float(dr_cfg.get("velocity_gain", 1.0)) if dr_enabled else 1.0
     ff_window = int(ff_cfg.window_size)
     hlk_trigger = int(hlk_cfg.trigger_ticks)
 
@@ -502,6 +506,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 log.info("user mode — WASD + QE + Shift/Ctrl controls active")
 
             dt = float(cfg.carla.fixed_delta_seconds)
+            dr_max_ticks = int(dr_max_seconds / dt) if dr_enabled else 0
 
             seed_fp: Fingerprint | None = None
             locked_track_id: int | None = None
@@ -709,9 +714,37 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                             img_cy = 0.5 * (image_size[0] - 1)
                             center_offset_px = float(np.hypot(u - img_cx, v - img_cy))
                         else:
-                            # Hold-last-known (SIM-17). Freeze drone pose; decay integrator state.
+                            # Lock lost this tick. Prior behaviour (v1a) was to
+                            # freeze the drone and reset PID state after
+                            # hlk_trigger ticks; that made the drone park itself
+                            # wherever the tracker lost the suspect, so when the
+                            # suspect emerged from an occlusion the drone was
+                            # far out of frame (issue #45).
+                            #
+                            # Dead-reckon (issue #45): coast the drone at the
+                            # last-estimated suspect velocity for up to
+                            # ``dr_max_ticks`` so the drone continues to where
+                            # the suspect is likely heading. If re-lock doesn't
+                            # happen within the window, fall back to the v1a
+                            # freeze + reset behaviour.
                             ticks_since_lock += 1
-                            if ticks_since_lock >= hlk_trigger:
+                            v_est = (
+                                target_tracker.velocity
+                                if (dr_enabled and ticks_since_lock <= dr_max_ticks)
+                                else None
+                            )
+                            if v_est is not None:
+                                # Boost past the suspect's estimated speed so any pre-
+                                # occlusion PID lag closes by the time the suspect
+                                # emerges. Clamp to the flight velocity cap.
+                                vx_dr = max(-flight_clamp, min(flight_clamp,
+                                    v_est[0] * dr_velocity_gain))
+                                vy_dr = max(-flight_clamp, min(flight_clamp,
+                                    v_est[1] * dr_velocity_gain))
+                                drone_pos_world[0] += vx_dr * dt
+                                drone_pos_world[1] += vy_dr * dt
+                                velocity_cmd_magnitude = float(np.hypot(vx_dr, vy_dr))
+                            elif ticks_since_lock >= hlk_trigger:
                                 pid_x.reset()
                                 pid_y.reset()
                                 target_tracker.reset()

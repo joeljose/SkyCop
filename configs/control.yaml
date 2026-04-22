@@ -12,7 +12,7 @@ control:
     Kp: 0.8
     Ki: 0.0
     Kd: 0.15
-    output_clamp_mps: 20.0    # max commanded velocity per axis (m/s)
+    output_clamp_mps: 25.0    # max commanded velocity per axis (m/s); bumped 20→25 for headroom over the suspect's speeding-during-FLEEING bursts and for snappier manual flight in v0c
     integral_clamp: 5.0       # absolute cap on integrator state
 
   # Velocity feedforward settings. Required for pursuit at any meaningful
@@ -28,10 +28,25 @@ control:
     window_size: 3
 
   # Hold-last-known behaviour (SIM-17). When the locked track is absent for
-  # this many consecutive ticks, freeze the commanded velocity at zero and
-  # drop the PID integrator state. Drone hovers at last position, no drift.
+  # this many consecutive ticks, drop the PID integrator state. Drone stays
+  # wherever dead-reckon (below) left it, no drift.
   hold_last_known:
     trigger_ticks: 3
+
+  # Dead-reckon during brief track loss (#45). When the locked tracker ID
+  # disappears from the frame (often because of an occlusion — walkway,
+  # tree, sign), keep *commanding* the drone at the last-estimated suspect
+  # velocity for up to ``max_seconds`` instead of freezing. Drone coasts
+  # into where the suspect is likely emerging, giving the fingerprint a
+  # chance to re-acquire cleanly. After ``max_seconds`` elapses with no
+  # re-lock, fall back to freeze + PID reset (SIM-17 behaviour above).
+  dead_reckon:
+    enabled: true
+    max_seconds: 2.0
+    # Coast the drone slightly FASTER than the suspect's estimated velocity
+    # during occlusions, so any pre-occlusion PID lag is closed by the time
+    # the suspect emerges. Commanded velocity is clamped to flight.output_clamp_mps.
+    velocity_gain: 1.5
 
   # Ground-plane assumption for pixel → world inverse projection.
   # In Town10HD roads are ~flat at z ≈ 0 within a few metres — good enough

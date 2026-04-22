@@ -461,7 +461,10 @@ class MJPEGServer:
         self._hud = hud or title
         self._html = html
         self._image_size = image_size
-        self._frame: np.ndarray | None = None
+        # Pre-seed with a placeholder so the MJPEG stream is never "blank"
+        # while the mission is spawning / ticking up — avoids the black
+        # screen the user sees just after clicking Start.
+        self._frame: np.ndarray = self._make_placeholder()
         self._lock = threading.Lock()
 
         # Start-trigger gate (v0a).
@@ -624,18 +627,21 @@ class MJPEGServer:
         """Between-round rearm: clear the start event, drop any held keys,
         and clear any pending submission — but **keep** the FSM snapshot
         (state / terminal / result) so the prior round's end modal stays
-        visible until the user explicitly clicks "Back to menu".
+        visible until the user explicitly clicks "Back to menu". The
+        MJPEG frame is reset to the "Loading" placeholder so the next
+        round doesn't start on a stale last-frame.
         """
         with self._lock:
             self._start_event.clear()
             self._pressed.clear()
             self._submission = None
             self._started_mode = "ai"
+            self._frame = self._make_placeholder()
 
     def reset_for_menu(self) -> None:
-        """Full reset — event + input + FSM snapshot + mode. Called from
-        the /menu route when the user explicitly chooses to return to the
-        splash. Causes any page on the live view to see fresh state."""
+        """Full reset — event + input + FSM snapshot + mode + frame. Called
+        from the /menu route when the user explicitly chooses to return to
+        the splash. Causes any page on the live view to see fresh state."""
         with self._lock:
             self._start_event.clear()
             self._pressed.clear()
@@ -645,6 +651,7 @@ class MJPEGServer:
             self._fsm_terminal = False
             self._fsm_result = None
             self._started_mode = "ai"
+            self._frame = self._make_placeholder()
 
     # ── MJPEG plumbing ──────────────────────────────────────────────
 
@@ -664,6 +671,31 @@ class MJPEGServer:
                 + buf.tobytes()
                 + b"\r\n"
             )
+
+    def _make_placeholder(self) -> np.ndarray:
+        """Solid-dark frame shown while no real camera frame is ready yet.
+
+        Two centred lines, pure ASCII (OpenCV's Hershey fonts don't render
+        Unicode punctuation, which was producing garbage glyphs earlier).
+        """
+        h, w = self._image_size
+        frame = np.full((h, w, 3), 20, dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        title = "SKYCOP"
+        subtitle = "Loading pursuit scene"
+        (tw1, th1), _ = cv2.getTextSize(title, font, 2.4, 4)
+        (tw2, th2), _ = cv2.getTextSize(subtitle, font, 1.0, 2)
+        cy = h // 2
+        cv2.putText(
+            frame, title, ((w - tw1) // 2, cy - 16),
+            font, 2.4, (127, 221, 221), 4, cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame, subtitle, ((w - tw2) // 2, cy + th2 + 30),
+            font, 1.0, (170, 170, 170), 2, cv2.LINE_AA,
+        )
+        return frame
 
     def push(self, frame: np.ndarray) -> None:
         with self._lock:
