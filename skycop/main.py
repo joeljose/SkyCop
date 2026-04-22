@@ -21,7 +21,7 @@ log = logging.getLogger("skycop.main")
 
 def main() -> None:
     setup_logging()
-    cfg = load("default", "detector", "training", "tracking", "mission")
+    cfg = load("default", "altitude", "detector", "training", "tracking", "mission")
 
     port = int(cfg.mission.get("mjpeg_port", 5000))
     server = MJPEGServer(

@@ -2,7 +2,12 @@
 
 import math
 
-from skycop.control.altitude import AltitudeConfig, Observation, compute_target
+from skycop.control.altitude import (
+    AltitudeConfig,
+    Observation,
+    _compute_target_raw,
+    compute_target,
+)
 
 
 def _cfg(**overrides):
@@ -56,3 +61,24 @@ def test_smoothing_converges_with_repeated_target():
     for _ in range(20):
         z = compute_target(cfg, Observation(building_near=False, rooftop_z=None), previous_z=z)
     assert math.isclose(z, 10.0, abs_tol=1e-3)
+
+
+# ── Raw-target helper (exposes pre-smoothing target for trace diagnostics) ──
+
+
+def test_compute_target_raw_matches_compute_target_without_prev():
+    cfg = _cfg()
+    for obs in [
+        Observation(building_near=False, rooftop_z=None),
+        Observation(building_near=True, rooftop_z=None),
+        Observation(building_near=False, rooftop_z=20.0),
+        Observation(building_near=True, rooftop_z=55.0),   # clamped at ceiling
+    ]:
+        assert _compute_target_raw(cfg, obs) == compute_target(cfg, obs, previous_z=None)
+
+
+def test_compute_target_raw_is_independent_of_smoothing():
+    # Raw target should not blend previous_z — it's the pre-smoothing setpoint.
+    cfg = _cfg(smoothing=0.99)
+    obs = Observation(building_near=True, rooftop_z=None)
+    assert _compute_target_raw(cfg, obs) == cfg.urban_target_m
