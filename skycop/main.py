@@ -25,8 +25,8 @@ def main() -> None:
 
     port = int(cfg.mission.get("mjpeg_port", 5000))
     server = MJPEGServer(
-        title="SkyCop — Mission v0a",
-        hud="Open this page, then press Start below. The pursuit begins on click — no ticks happen before you do.",
+        title="SkyCop Pursuit",
+        hud="AI drone pursuit · live MJPEG feed",
         use_start_trigger=True,
     )
     server.start(port=port)

@@ -47,19 +47,43 @@ _SPLASH_HTML = """<!DOCTYPE html>
 <html><head><title>{title}</title>
 <style>
   body {{ margin: 0; min-height: 100vh; background: #111; color: #eee;
-          font-family: monospace; display: flex; align-items: center;
-          justify-content: center; flex-direction: column; gap: 1.5rem; }}
-  h1 {{ font-size: 2rem; margin: 0; color: #7fd; }}
-  p  {{ font-size: 1rem; color: #aaa; max-width: 28rem; text-align: center; }}
-  form button {{ background: #7fd; color: #111; border: 0; padding: 1rem 2rem;
-                 font-size: 1.2rem; border-radius: 0.5rem; cursor: pointer;
-                 font-family: inherit; letter-spacing: 0.05em; }}
-  form button:hover {{ background: #4be; }}
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          display: flex; align-items: center; justify-content: center;
+          flex-direction: column; gap: 2rem; padding: 2rem; box-sizing: border-box; }}
+  h1 {{ font-size: 2.4rem; margin: 0; color: #7fd; letter-spacing: 0.05em; }}
+  .tagline {{ font-size: 0.95rem; color: #999; max-width: 30rem;
+              text-align: center; line-height: 1.5; margin: 0; }}
+  .modes {{ display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }}
+  .mode {{ background: #1b1b1b; border: 1px solid #333; border-radius: 0.75rem;
+           padding: 1.5rem 1.75rem; width: 18rem; display: flex;
+           flex-direction: column; gap: 0.75rem; }}
+  .mode h2 {{ margin: 0; font-size: 1.15rem; color: #eee; }}
+  .mode p  {{ margin: 0; font-size: 0.85rem; color: #aaa; line-height: 1.45; flex: 1; }}
+  .mode button {{ background: #7fd; color: #111; border: 0; padding: 0.8rem 1rem;
+                  font-size: 1rem; border-radius: 0.5rem; cursor: pointer;
+                  font-family: inherit; letter-spacing: 0.04em; }}
+  .mode button:hover {{ background: #4be; }}
+  .mode.disabled {{ opacity: 0.55; }}
+  .mode.disabled button {{ background: #333; color: #888; cursor: not-allowed; }}
+  .mode.disabled button:hover {{ background: #333; }}
+  .version {{ margin: 0; font-size: 0.75rem; color: #555; }}
 </style>
 </head><body>
 <h1>{title}</h1>
-<p>{hud}</p>
-<form method="POST" action="/start"><button type="submit">Start pursuit</button></form>
+<p class="tagline">Drone pursuit simulation. Pick a mode to begin. Mission ends when the suspect parks and the pursuit is confirmed — or when you lose them.</p>
+<div class="modes">
+  <div class="mode">
+    <h2>AI Pursuit</h2>
+    <p>The drone follows a reckless suspect autonomously using YOLO + ByteTrack + HSV re-ID. Watch the live camera feed while the flight PID keeps the suspect centred. Mission auto-ends on parked-car confirmation.</p>
+    <form method="POST" action="/start"><button type="submit">Start AI Pursuit</button></form>
+  </div>
+  <div class="mode disabled">
+    <h2>Manual Pursuit</h2>
+    <p>Fly the drone yourself. Chase the suspect, draw a bounding box on the parked vehicle, submit. Coming in v0c — manual drone controls and the draw-bbox submission UI.</p>
+    <button type="button" disabled>Coming in v0c</button>
+  </div>
+</div>
+<p class="version">v0b · Mission SkyCop</p>
 </body></html>"""
 
 
