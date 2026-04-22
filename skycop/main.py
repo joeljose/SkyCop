@@ -46,7 +46,10 @@ def main() -> None:
             return
         except Exception:
             log.exception("mission crashed — resetting for next round")
-        server.reset_for_menu()
+        # Between-round rearm: clears the start event so the next round
+        # blocks on wait_for_start, but keeps the prior round's end modal
+        # state visible to the page until the user clicks "Back to menu".
+        server.rearm_start_event()
         round_num += 1
 
 

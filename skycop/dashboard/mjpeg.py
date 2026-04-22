@@ -31,16 +31,129 @@ from flask import Flask, Response, redirect, request, url_for
 from flask_sock import Sock
 
 _LIVE_AI_HTML = """<!DOCTYPE html>
-<html><head><title>{title}</title>
+<html><head><title>{title} — AI Pursuit</title>
 <style>
-  body {{ margin: 0; background: #111; color: #eee; font-family: monospace; }}
+  body {{ margin: 0; background: #111; color: #eee;
+          font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }}
   img  {{ width: 100vw; height: 100vh; object-fit: contain; display: block; }}
-  #hud {{ position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.7);
-          padding: 8px 12px; border-radius: 6px; font-size: 13px; }}
+  #border {{ position: fixed; inset: 0; pointer-events: none; z-index: 30;
+             box-sizing: border-box; border: 8px solid transparent;
+             transition: border-color 0.3s ease; }}
+  #border.fleeing {{ border-color: #e14; }}
+  #border.roaming {{ border-color: #f90; }}
+  #border.parking {{ border-color: #fc3; }}
+  #border.parked  {{ border-color: #4e8; }}
+  #panel {{ position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); padding: 14px 28px; border-radius: 10px;
+            font-size: 16px; display: flex; flex-direction: column; gap: 6px;
+            align-items: center; min-width: 320px; border: 3px solid #333;
+            text-align: center; }}
+  #panel .state {{ font-size: 28px; font-weight: bold; letter-spacing: 0.12em; }}
+  #panel .hint  {{ font-size: 14px; color: #ccc; }}
+  #panel.fleeing {{ border-color: #e14; background: rgba(225, 17, 68, 0.15); }}
+    #panel.fleeing .state {{ color: #f66; }}
+  #panel.roaming {{ border-color: #f90; background: rgba(255, 153, 0, 0.15); }}
+    #panel.roaming .state {{ color: #fa4; }}
+  #panel.parking {{ border-color: #fc3; background: rgba(255, 204, 51, 0.15); }}
+    #panel.parking .state {{ color: #fd6; }}
+  #panel.parked  {{ border-color: #4e8; background: rgba(68, 238, 136, 0.2); }}
+    #panel.parked  .state {{ color: #6f8; }}
+  #flash {{ position: fixed; top: 38%; left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            padding: 28px 68px; border-radius: 14px; font-size: 48px;
+            font-weight: bold; letter-spacing: 0.15em;
+            background: rgba(0,0,0,0.7); border: 4px solid;
+            opacity: 0; pointer-events: none; z-index: 40;
+            transition: opacity 0.25s ease, transform 0.25s ease; }}
+  #flash.show {{ opacity: 1; transform: translate(-50%, -50%) scale(1.0); }}
+  #flash.fleeing {{ border-color: #e14; color: #f66; }}
+  #flash.roaming {{ border-color: #f90; color: #fa4; }}
+  #flash.parking {{ border-color: #fc3; color: #fd6; }}
+  #flash.parked  {{ border-color: #4e8; color: #6f8; }}
+  #end {{ position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+          display: none; align-items: center; justify-content: center;
+          flex-direction: column; gap: 1.5rem; z-index: 50; }}
+  #end.show {{ display: flex; }}
+  #end h1 {{ margin: 0; font-size: 2.2rem; }}
+  #end h1.win {{ color: #7fd; }} #end h1.lose {{ color: #f66; }}
+  #end p  {{ margin: 0; color: #ccc; max-width: 30rem; text-align: center; }}
+  #end a  {{ background: #7fd; color: #111; padding: 0.75rem 1.75rem;
+             text-decoration: none; border-radius: 0.5rem; font-family: inherit;
+             font-weight: bold; letter-spacing: 0.05em; }}
 </style>
 </head><body>
 <img src="/stream"/>
-<div id="hud">{hud}</div>
+<div id="border" class="fleeing"></div>
+<div id="panel" class="fleeing">
+  <div class="state">FLEEING</div>
+  <div class="hint">Autonomous pursuit · {hud}</div>
+</div>
+<div id="flash" class="fleeing">FLEEING</div>
+<div id="end">
+  <h1 id="end-title">—</h1>
+  <p id="end-detail">—</p>
+  <a href="/menu">Back to menu</a>
+</div>
+<script>
+const panel = document.getElementById('panel');
+const border = document.getElementById('border');
+const flash = document.getElementById('flash');
+const stateLabel = panel.querySelector('.state');
+const hintLabel = panel.querySelector('.hint');
+const endPanel = document.getElementById('end');
+const endTitle = document.getElementById('end-title');
+const endDetail = document.getElementById('end-detail');
+const hints = {{
+  fleeing: 'Suspect fleeing — drone pursuing',
+  roaming: 'Suspect roaming — drone pursuing',
+  parking: 'Suspect parking — drone holding',
+  parked:  'Suspect parked — AI confirming',
+}};
+const flashLabels = {{
+  fleeing: 'FLEEING', roaming: 'ROAMING', parking: 'PARKING', parked: 'PARKED',
+}};
+let lastState = null;
+let flashTimer = null;
+function showFlash(newState) {{
+  flash.textContent = flashLabels[newState] || newState.toUpperCase();
+  flash.className = newState;
+  void flash.offsetWidth;
+  flash.classList.add('show');
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {{ flash.classList.remove('show'); }}, 1200);
+}}
+async function pollState() {{
+  try {{
+    const r = await fetch('/state'); const s = await r.json();
+    stateLabel.textContent = s.state.toUpperCase();
+    hintLabel.textContent = hints[s.state] || '';
+    if (s.state === 'parked' && s.countdown_s != null) {{
+      hintLabel.textContent = `AI confirming · ${{s.countdown_s.toFixed(1)}}s`;
+    }}
+    panel.className = s.state;
+    border.className = s.state;
+    if (lastState !== null && s.state !== lastState && !s.terminal) {{
+      showFlash(s.state);
+    }}
+    lastState = s.state;
+    if (s.terminal) {{
+      endPanel.classList.add('show');
+      const win = s.result === 'ai_pass';
+      endTitle.textContent = win ? 'Pursuit confirmed' : 'Suspect lost';
+      endTitle.className = win ? 'win' : 'lose';
+      const detail = {{
+        ai_pass: 'AI locked the parked suspect. Autonomous pursuit succeeded.',
+        timeout_lose: 'The 60-second confirmation window expired with no lock. The suspect is gone.',
+      }};
+      endDetail.textContent = detail[s.result] || 'Round ended.';
+    }} else {{
+      endPanel.classList.remove('show');
+    }}
+  }} catch (e) {{}}
+}}
+setInterval(pollState, 250);
+pollState();
+</script>
 </body></html>"""
 
 _LIVE_USER_HTML = """<!DOCTYPE html>
@@ -54,16 +167,43 @@ _LIVE_USER_HTML = """<!DOCTYPE html>
   canvas {{ position: absolute; inset: 0; width: 100%; height: 100%;
             cursor: crosshair; pointer-events: none; }}
   canvas.active {{ pointer-events: auto; }}
-  #panel {{ position: fixed; top: 12px; left: 12px;
-            background: rgba(0,0,0,0.82); padding: 10px 14px; border-radius: 8px;
-            font-size: 14px; display: flex; flex-direction: column; gap: 4px;
-            min-width: 220px; border: 2px solid #333; }}
-  #panel .state {{ font-size: 17px; font-weight: bold; letter-spacing: 0.07em; }}
-  #panel .hint  {{ font-size: 12px; color: #bbb; }}
-  #panel.fleeing {{ border-color: #e14; }} #panel.fleeing .state {{ color: #f66; }}
-  #panel.roaming {{ border-color: #f90; }} #panel.roaming .state {{ color: #fa4; }}
-  #panel.parking {{ border-color: #fc3; }} #panel.parking .state {{ color: #fd6; }}
-  #panel.parked  {{ border-color: #4e8; }} #panel.parked  .state {{ color: #6f8; }}
+  /* Full-viewport coloured border — always visible, matches suspect state. */
+  #border {{ position: fixed; inset: 0; pointer-events: none; z-index: 30;
+             box-sizing: border-box; border: 8px solid transparent;
+             transition: border-color 0.3s ease; }}
+  #border.fleeing {{ border-color: #e14; }}
+  #border.roaming {{ border-color: #f90; }}
+  #border.parking {{ border-color: #fc3; }}
+  #border.parked  {{ border-color: #4e8; }}
+  /* Top-centre state banner — readable from the middle of the screen. */
+  #panel {{ position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); padding: 14px 28px; border-radius: 10px;
+            font-size: 16px; display: flex; flex-direction: column; gap: 6px;
+            align-items: center; min-width: 320px; border: 3px solid #333;
+            text-align: center; }}
+  #panel .state {{ font-size: 28px; font-weight: bold; letter-spacing: 0.12em; }}
+  #panel .hint  {{ font-size: 14px; color: #ccc; }}
+  #panel.fleeing {{ border-color: #e14; background: rgba(225, 17, 68, 0.15); }}
+    #panel.fleeing .state {{ color: #f66; }}
+  #panel.roaming {{ border-color: #f90; background: rgba(255, 153, 0, 0.15); }}
+    #panel.roaming .state {{ color: #fa4; }}
+  #panel.parking {{ border-color: #fc3; background: rgba(255, 204, 51, 0.15); }}
+    #panel.parking .state {{ color: #fd6; }}
+  #panel.parked  {{ border-color: #4e8; background: rgba(68, 238, 136, 0.2); }}
+    #panel.parked  .state {{ color: #6f8; }}
+  /* Transition flash — big centred banner for ~1 s on state change. */
+  #flash {{ position: fixed; top: 38%; left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            padding: 28px 68px; border-radius: 14px; font-size: 48px;
+            font-weight: bold; letter-spacing: 0.15em;
+            background: rgba(0,0,0,0.7); border: 4px solid;
+            opacity: 0; pointer-events: none; z-index: 40;
+            transition: opacity 0.25s ease, transform 0.25s ease; }}
+  #flash.show {{ opacity: 1; transform: translate(-50%, -50%) scale(1.0); }}
+  #flash.fleeing {{ border-color: #e14; color: #f66; }}
+  #flash.roaming {{ border-color: #f90; color: #fa4; }}
+  #flash.parking {{ border-color: #fc3; color: #fd6; }}
+  #flash.parked  {{ border-color: #4e8; color: #6f8; }}
   #controls {{ position: fixed; top: 12px; right: 12px;
                background: rgba(0,0,0,0.75); padding: 10px 14px;
                border-radius: 8px; font-size: 12px; color: #bbb; line-height: 1.7; }}
@@ -89,10 +229,12 @@ _LIVE_USER_HTML = """<!DOCTYPE html>
   <img src="/stream"/>
   <canvas id="canvas"></canvas>
 </div>
+<div id="border" class="fleeing"></div>
 <div id="panel" class="fleeing">
   <div class="state">FLEEING</div>
   <div class="hint">connecting…</div>
 </div>
+<div id="flash" class="fleeing">FLEEING</div>
 <div id="controls">
   <b>W/S</b> forward · back<br>
   <b>A/D</b> strafe left · right<br>
@@ -182,6 +324,8 @@ submit.addEventListener('click', async () => {{
 
 // ── Game state polling ───────────────────────────────────────────
 const panel = document.getElementById('panel');
+const border = document.getElementById('border');
+const flash = document.getElementById('flash');
 const stateLabel = panel.querySelector('.state');
 const hintLabel = panel.querySelector('.hint');
 const endPanel = document.getElementById('end');
@@ -193,6 +337,20 @@ const hints = {{
   parking: 'Suspect parking — hold position',
   parked:  'Draw bbox · submit',
 }};
+const flashLabels = {{
+  fleeing: 'FLEEING', roaming: 'ROAMING', parking: 'PARKING', parked: 'PARKED',
+}};
+let lastState = null;
+let flashTimer = null;
+function showFlash(newState) {{
+  flash.textContent = flashLabels[newState] || newState.toUpperCase();
+  flash.className = newState;
+  // trigger reflow so the 'show' transition always plays
+  void flash.offsetWidth;
+  flash.classList.add('show');
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {{ flash.classList.remove('show'); }}, 1200);
+}}
 async function pollState() {{
   try {{
     const r = await fetch('/state'); const s = await r.json();
@@ -202,6 +360,11 @@ async function pollState() {{
       hintLabel.textContent = `Draw bbox · submit · ${{s.countdown_s.toFixed(1)}}s`;
     }}
     panel.className = s.state;
+    border.className = s.state;
+    if (lastState !== null && s.state !== lastState && !s.terminal) {{
+      showFlash(s.state);
+    }}
+    lastState = s.state;
     // Canvas + submit enable only when PARKED
     if (s.state === 'parked' && !s.terminal) {{
       canvas.classList.add('active');
@@ -223,6 +386,10 @@ async function pollState() {{
         timeout_lose: 'The 60-second confirmation window expired with no submission. The suspect is gone.',
       }};
       endDetail.textContent = detail[s.result] || 'Round ended.';
+    }} else {{
+      // A fresh round was started (terminal cleared by the server) — hide
+      // the end modal so the new round is visible.
+      endPanel.classList.remove('show');
     }}
   }} catch (e) {{ /* server restarting or paused — keep polling */ }}
 }}
@@ -453,12 +620,22 @@ class MJPEGServer:
         with self._lock:
             self._submission = None
 
-    def reset_for_menu(self) -> None:
-        """Rearm the server for a fresh round: clear the start event, drop
-        held keys, clear any pending submission, and reset the FSM snapshot
-        so the page shows the splash menu again and ``wait_for_start()``
-        blocks until the user picks a mode a second time.
+    def rearm_start_event(self) -> None:
+        """Between-round rearm: clear the start event, drop any held keys,
+        and clear any pending submission — but **keep** the FSM snapshot
+        (state / terminal / result) so the prior round's end modal stays
+        visible until the user explicitly clicks "Back to menu".
         """
+        with self._lock:
+            self._start_event.clear()
+            self._pressed.clear()
+            self._submission = None
+            self._started_mode = "ai"
+
+    def reset_for_menu(self) -> None:
+        """Full reset — event + input + FSM snapshot + mode. Called from
+        the /menu route when the user explicitly chooses to return to the
+        splash. Causes any page on the live view to see fresh state."""
         with self._lock:
             self._start_event.clear()
             self._pressed.clear()
