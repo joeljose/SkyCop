@@ -516,6 +516,36 @@ Plus a per-tick `trace.jsonl` (`drone_to_suspect_m`, `center_offset_px`, `veloci
 
 ---
 
+### D-17 · Dead-reckon during brief track loss (v1 of issue #45)
+
+**Status:** Decided · **Date:** 2026-04-22 · **Issue:** #45
+
+**Context.** v0c playtest with the altitude bump (25 m → 40 m, D-16 / v0c tune) confirmed that the Town10HD monorail walkways no longer visually occlude the drone at the framing level — the wider ground footprint keeps useful context on screen. But the tracker still loses its ID briefly as the suspect passes under the deck, and the v1a hold-last-known behaviour **froze the drone pose** for the duration of that blackout. The result: when the suspect emerged on the far side of the walkway, the drone was 100 m behind, and the fingerprint had to re-acquire across a larger gap than necessary — often snapping onto a lookalike.
+
+Initially this issue was scoped as "adaptive altitude + obstacle-aware climb-over + scan-high at dispatch" (three-trigger state machine). Playtesting at 40 m showed climb-over wasn't needed for the current Town10HD obstacles; scan-high is only load-bearing once dispatch bootstrap exists (FR-03). So the scope shrunk to a single v1 unit: dead-reckon.
+
+**Decisions.**
+
+1. **Dead-reckon during lock loss, bounded by `control.dead_reckon.max_seconds`** (default 2 s = 40 ticks at 20 FPS). When the locked track isn't in the current frame's tracks list, the mission loop continues to command the drone at ``TargetStateTracker.velocity`` (the last 3-sample smoothed estimate of the suspect's world velocity) instead of freezing. Drone coasts into where the suspect is likely heading; when the suspect emerges from the occlusion, the drone is positioned to re-acquire.
+
+2. **Fall back to v1a freeze + PID reset after the window expires.** After ``dr_max_ticks`` of dead-reckoning with no re-lock, the controller reverts to the SIM-17 hold-last-known behaviour — freeze drone pose and reset integrator state — so a long-term unrecoverable loss doesn't let the drone coast indefinitely. Matches the original intent: short blackouts get an educated guess, long blackouts stay put.
+
+3. **AI mode only.** User mode drone position is always commanded by the user; dead-reckon would fight the user's inputs. Gated via the existing ``mode == 'ai'`` branch.
+
+4. **No obstacle map loaded in v1.** The scout output (``output/scout/town10hd_overhead.json``, ``scripts/12_overhead_scout.py``) stays in the repo for a future iteration. Climb-over can be re-opened if a specific obstacle fails the 40 m pursuit altitude.
+
+**Deferred to a later issue once dispatch exists:**
+
+- **Scan-high at dispatch bootstrap** — climb to ~60 m when the drone has to find the suspect with no initial lock. Only becomes meaningful once the dispatch flow (FR-03) exists.
+- **Obstacle-aware climb-over** — dynamic altitude step on approach to a mapped overpass. Scout is ready; re-open once a specific failing obstacle is identified.
+
+**Open risks (v1 playtest watch list):**
+
+- TargetStateTracker velocity decays as samples age inside its rolling window. For very long blackouts the estimate can be stale — ``dr_max_seconds=2`` bounds the error.
+- The dead-reckon move is unclamped against ``flight.output_clamp_mps``. The estimate is already speed-limited by the physics of the suspect itself; a hard clamp is probably unnecessary. Watch whether commanded velocity spikes unrealistically in the trace.
+
+---
+
 ## 13. Open Questions
 
 - **Suspect FSM owner.** ~~Scripts 03/04 use TM autopilot with reckless knobs. The proper Fleeing→Roaming→Parking→Parked FSM (FR-07..11) is deferred.~~ Resolved by D-14 — FSM lives in `skycop.sim.suspect_fsm`, CARLA side-effects in the mission loop.
