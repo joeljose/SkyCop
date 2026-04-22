@@ -41,7 +41,14 @@ import carla
 import cv2
 import numpy as np
 
-from skycop.control import PursuitPID, TargetStateTracker
+from skycop.control import (
+    Pose,
+    PursuitPID,
+    TargetStateTracker,
+    UserDroneConfig,
+    UserDroneController,
+)
+from skycop.control.collision import apply_slide_along
 from skycop.cv.capture import weather_preset
 from skycop.cv.fingerprint import Fingerprint, extract, score
 from skycop.cv.gt_projection import (
@@ -320,6 +327,7 @@ def _choose_locked_track(
 
 def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     mission_cfg = cfg.mission
+    mode = str(mission_cfg.get("mode", "ai")).lower()
     duration_s = float(mission_cfg.duration_s)
     altitude_m = float(mission_cfg.altitude_m)
     weather_name = str(mission_cfg.weather)
@@ -367,8 +375,6 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     trace_path = run_dir / "trace.jsonl"
 
     weights_path = Path(cfg.training.project) / cfg.training.name / "weights" / "best.pt"
-    if not weights_path.exists():
-        raise FileNotFoundError(f"Fine-tuned weights missing: {weights_path}. Run exp 08.")
 
     client = connect(host=cfg.carla.host, port=cfg.carla.port)
     world = client.get_world()
@@ -378,11 +384,17 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
 
     # Start trigger (v0a): mission blocks here until the user clicks
     # "Start pursuit" on the MJPEG page (or instantly if the server wasn't
-    # constructed with use_start_trigger=True).
+    # constructed with use_start_trigger=True). The server also tells us
+    # which mode the user picked on the menu — we honour that over cfg.
     if mjpeg_server is not None and not mjpeg_server.started:
         log.info("mission paused — waiting for /start click on the MJPEG page…")
         mjpeg_server.wait_for_start()
-        log.info("start received; bringing up the scene")
+        mode = mjpeg_server.started_mode or mode
+        log.info("start received — mode=%s", mode)
+
+    # YOLO weights only required in AI mode (pipeline is disabled in user mode).
+    if mode == "ai" and not weights_path.exists():
+        raise FileNotFoundError(f"Fine-tuned weights missing: {weights_path}. Run exp 08.")
 
     K = build_camera_matrix(int(cfg.camera.width), int(cfg.camera.height), float(cfg.camera.fov))
     image_size = (int(cfg.camera.height), int(cfg.camera.width))
@@ -417,15 +429,18 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
             )
             actors.append(rgb_cam)
 
-            adapter = ByteTrackAdapter(
-                weights=str(weights_path),
-                tracker_yaml=str(cfg.tracking.tracker_yaml),
-                conf_threshold=float(cfg.detector.conf_threshold),
-                iou_threshold=float(cfg.detector.iou_threshold),
-                input_size=int(cfg.training.imgsz),
-                device=str(cfg.training.device),
-                fp16=bool(cfg.training.half),
-            )
+            # YOLO + ByteTrack only in AI mode (skipped in user mode).
+            adapter: ByteTrackAdapter | None = None
+            if mode == "ai":
+                adapter = ByteTrackAdapter(
+                    weights=str(weights_path),
+                    tracker_yaml=str(cfg.tracking.tracker_yaml),
+                    conf_threshold=float(cfg.detector.conf_threshold),
+                    iou_threshold=float(cfg.detector.iou_threshold),
+                    input_size=int(cfg.training.imgsz),
+                    device=str(cfg.training.device),
+                    fp16=bool(cfg.training.half),
+                )
 
             log.info("altitude pinned to mission.altitude_m=%.1fm (v0a bump — adaptive altitude is issue #45)", altitude_m)
 
@@ -462,12 +477,29 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 drone_pos_world[0], drone_pos_world[1], drone_pos_world[2],
             )
 
-            pid_x = PursuitPID(Kp=flight_Kp, Ki=flight_Ki, Kd=flight_Kd,
-                               output_clamp=flight_clamp, integral_clamp=flight_int_clamp)
-            pid_y = PursuitPID(Kp=flight_Kp, Ki=flight_Ki, Kd=flight_Kd,
-                               output_clamp=flight_clamp, integral_clamp=flight_int_clamp)
-            target_tracker = TargetStateTracker(window_size=ff_window)
-            ticks_since_lock = 0   # counter for hold-last-known
+            # Flight PID + feedforward + HLK — AI mode only.
+            pid_x = pid_y = None
+            target_tracker = None
+            ticks_since_lock = 0
+            if mode == "ai":
+                pid_x = PursuitPID(Kp=flight_Kp, Ki=flight_Ki, Kd=flight_Kd,
+                                   output_clamp=flight_clamp, integral_clamp=flight_int_clamp)
+                pid_y = PursuitPID(Kp=flight_Kp, Ki=flight_Ki, Kd=flight_Kd,
+                                   output_clamp=flight_clamp, integral_clamp=flight_int_clamp)
+                target_tracker = TargetStateTracker(window_size=ff_window)
+
+            # User-mode controller — body-frame snappy WASD-QE (v0c).
+            user_ctrl: UserDroneController | None = None
+            drone_yaw_rad = math.radians(float(suspect_tf0.rotation.yaw))
+            if mode == "user":
+                user_cfg = UserDroneConfig(
+                    max_speed_mps=float(flight_clamp),
+                    altitude_rate_mps=5.0,
+                    yaw_rate_deg_s=60.0,
+                    min_altitude_m=5.0,
+                )
+                user_ctrl = UserDroneController(cfg=user_cfg)
+                log.info("user mode — WASD + QE + Shift/Ctrl controls active")
 
             dt = float(cfg.carla.fixed_delta_seconds)
 
@@ -506,8 +538,13 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
             t0 = time.perf_counter()
             try:
                 for tick in range(target_ticks):
-                    # Camera yaw follows suspect body yaw via GT (gimbal PID deferred to PR 2b).
-                    suspect_yaw = float(suspect.get_transform().rotation.yaw)
+                    # ── Camera / drone pose for this tick ──────────────
+                    # AI mode: camera yaw follows suspect body yaw via GT.
+                    # User mode: camera yaw = user-controlled drone yaw.
+                    if mode == "user":
+                        camera_yaw_deg = math.degrees(drone_yaw_rad)
+                    else:
+                        camera_yaw_deg = float(suspect.get_transform().rotation.yaw)
                     pose = carla.Transform(
                         carla.Location(
                             float(drone_pos_world[0]),
@@ -516,7 +553,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                         ),
                         carla.Rotation(
                             pitch=float(cfg.camera.pitch),
-                            yaw=suspect_yaw,
+                            yaw=camera_yaw_deg,
                             roll=0.0,
                         ),
                     )
@@ -563,117 +600,141 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                                 frames_in_frame += 1
                                 suspect_fully_in_frame = True
 
-                    # Detect + track.
-                    tracks = adapter.update(frame_bgr)
-
-                    # Fingerprint bootstrap (first tick where a tracker box overlaps GT).
-                    if seed_fp is None and gt_bbox is not None:
-                        for t in tracks:
-                            if t.track_id is None:
-                                continue
-                            if iou_xyxy(t.bbox, gt_bbox) >= iou_gate:
-                                seed_fp = extract(frame_bgr, t.bbox, bins=hsv_bins)
-                                if seed_fp.is_valid():
-                                    locked_track_id = t.track_id
-                                    initial_lock_frame = frames_total
-                                    initial_lock_track_id = t.track_id
-                                    log.info("initial lock: frame=%d track_id=%d",
-                                             frames_total, t.track_id)
-                                    break
-
-                    # Fingerprint matching + sticky rebind.
+                    # ── AI mode: detect + track + fingerprint + flight PID ──
+                    # User mode: skip all of this — user flies via WASDQE.
+                    tracks = []
                     track_scores: dict[int, float] = {}
-                    if seed_fp is not None:
-                        for t in tracks:
-                            if t.track_id is None:
-                                continue
-                            cand_fp = extract(frame_bgr, t.bbox, bins=hsv_bins)
-                            track_scores[t.track_id] = score(seed_fp, cand_fp)
-                        locked_track_id = _choose_locked_track(
-                            track_scores, locked_track_id, rebind_threshold, stickiness
-                        )
-
-                    # Identify the "correct" tracker box for metric bookkeeping: the one
-                    # whose bbox has IoU ≥ gate with the GT projection.
                     gt_matched_track_id: int | None = None
-                    if gt_bbox is not None:
-                        best_gt_iou = 0.0
-                        for t in tracks:
-                            if t.track_id is None:
-                                continue
-                            gt_iou = iou_xyxy(t.bbox, gt_bbox)
-                            if gt_iou > best_gt_iou and gt_iou >= iou_gate:
-                                best_gt_iou = gt_iou
-                                gt_matched_track_id = t.track_id
-
                     locked_track = None
-                    if locked_track_id is not None:
-                        frames_locked += 1
-                        locked_track = next(
-                            (t for t in tracks if t.track_id == locked_track_id), None
-                        )
-
-                    # id_accuracy: on GT-visible frames, did we lock the right track_id?
-                    if suspect_visible and gt_matched_track_id is not None:
-                        if locked_track_id == gt_matched_track_id:
-                            frames_id_correct += 1
-
-                    # Legacy IoU correctness (for continuity with Mission v0 summary).
-                    if (
-                        locked_track is not None
-                        and gt_bbox is not None
-                        and iou_xyxy(locked_track.bbox, gt_bbox) >= iou_gate
-                    ):
-                        frames_iou_correct += 1
-
-                    # ── Flight control ───────────────────────────────────
-                    # Estimate target world position from locked track's bbox center
-                    # (pixel → ground-plane inverse projection).
-                    target_xy_world: tuple[float, float] | None = None
-                    if locked_track is not None:
-                        u = 0.5 * (locked_track.x1 + locked_track.x2)
-                        v = 0.5 * (locked_track.y1 + locked_track.y2)
-                        target_xy_world = pixel_to_world_on_ground(
-                            u, v, K, cam_to_world, ground_z=ground_z,
-                        )
-
                     center_offset_px = 0.0
                     velocity_cmd_magnitude = 0.0
-                    ff_vx = 0.0
-                    ff_vy = 0.0
 
-                    if target_xy_world is not None:
-                        ticks_since_lock = 0
-                        tx, ty = target_xy_world
-                        target_tracker.update(float(tick) * dt, tx, ty)
+                    if mode == "ai":
+                        assert adapter is not None
+                        assert pid_x is not None and pid_y is not None
+                        assert target_tracker is not None
 
-                        # Velocity feedforward.
-                        if ff_enabled:
-                            v_est = target_tracker.velocity
-                            if v_est is not None:
-                                ff_vx = ff_scale * v_est[0]
-                                ff_vy = ff_scale * v_est[1]
+                        tracks = adapter.update(frame_bgr)
 
-                        err_x = tx - drone_pos_world[0]
-                        err_y = ty - drone_pos_world[1]
-                        vx_cmd = pid_x.step(err_x, dt, feedforward=ff_vx)
-                        vy_cmd = pid_y.step(err_y, dt, feedforward=ff_vy)
+                        # Fingerprint bootstrap (first tick where a tracker box overlaps GT).
+                        if seed_fp is None and gt_bbox is not None:
+                            for t in tracks:
+                                if t.track_id is None:
+                                    continue
+                                if iou_xyxy(t.bbox, gt_bbox) >= iou_gate:
+                                    seed_fp = extract(frame_bgr, t.bbox, bins=hsv_bins)
+                                    if seed_fp.is_valid():
+                                        locked_track_id = t.track_id
+                                        initial_lock_frame = frames_total
+                                        initial_lock_track_id = t.track_id
+                                        log.info("initial lock: frame=%d track_id=%d",
+                                                 frames_total, t.track_id)
+                                        break
 
-                        drone_pos_world[0] += vx_cmd * dt
-                        drone_pos_world[1] += vy_cmd * dt
-                        velocity_cmd_magnitude = float(np.hypot(vx_cmd, vy_cmd))
+                        # Fingerprint matching + sticky rebind.
+                        if seed_fp is not None:
+                            for t in tracks:
+                                if t.track_id is None:
+                                    continue
+                                cand_fp = extract(frame_bgr, t.bbox, bins=hsv_bins)
+                                track_scores[t.track_id] = score(seed_fp, cand_fp)
+                            locked_track_id = _choose_locked_track(
+                                track_scores, locked_track_id, rebind_threshold, stickiness
+                            )
 
-                        # Centre-offset for the trace (distance of locked bbox centre from image centre).
-                        img_cx = 0.5 * (image_size[1] - 1)
-                        img_cy = 0.5 * (image_size[0] - 1)
-                        center_offset_px = float(np.hypot(u - img_cx, v - img_cy))
-                    else:
-                        # Hold-last-known (SIM-17). Freeze drone pose; decay integrator state.
-                        ticks_since_lock += 1
-                        if ticks_since_lock >= hlk_trigger:
-                            pid_x.reset()
-                            pid_y.reset()
-                            target_tracker.reset()
+                        # Identify the "correct" tracker box for metric bookkeeping: the one
+                        # whose bbox has IoU ≥ gate with the GT projection.
+                        if gt_bbox is not None:
+                            best_gt_iou = 0.0
+                            for t in tracks:
+                                if t.track_id is None:
+                                    continue
+                                gt_iou = iou_xyxy(t.bbox, gt_bbox)
+                                if gt_iou > best_gt_iou and gt_iou >= iou_gate:
+                                    best_gt_iou = gt_iou
+                                    gt_matched_track_id = t.track_id
+
+                        if locked_track_id is not None:
+                            frames_locked += 1
+                            locked_track = next(
+                                (t for t in tracks if t.track_id == locked_track_id), None
+                            )
+
+                        # id_accuracy: on GT-visible frames, did we lock the right track_id?
+                        if (
+                            suspect_visible
+                            and gt_matched_track_id is not None
+                            and locked_track_id == gt_matched_track_id
+                        ):
+                            frames_id_correct += 1
+
+                        # Legacy IoU correctness (for continuity with Mission v0 summary).
+                        if (
+                            locked_track is not None
+                            and gt_bbox is not None
+                            and iou_xyxy(locked_track.bbox, gt_bbox) >= iou_gate
+                        ):
+                            frames_iou_correct += 1
+
+                        # Flight control: pixel → ground-plane inverse projection.
+                        target_xy_world: tuple[float, float] | None = None
+                        if locked_track is not None:
+                            u = 0.5 * (locked_track.x1 + locked_track.x2)
+                            v = 0.5 * (locked_track.y1 + locked_track.y2)
+                            target_xy_world = pixel_to_world_on_ground(
+                                u, v, K, cam_to_world, ground_z=ground_z,
+                            )
+
+                        ff_vx = 0.0
+                        ff_vy = 0.0
+                        if target_xy_world is not None:
+                            ticks_since_lock = 0
+                            tx, ty = target_xy_world
+                            target_tracker.update(float(tick) * dt, tx, ty)
+                            if ff_enabled:
+                                v_est = target_tracker.velocity
+                                if v_est is not None:
+                                    ff_vx = ff_scale * v_est[0]
+                                    ff_vy = ff_scale * v_est[1]
+                            err_x = tx - drone_pos_world[0]
+                            err_y = ty - drone_pos_world[1]
+                            vx_cmd = pid_x.step(err_x, dt, feedforward=ff_vx)
+                            vy_cmd = pid_y.step(err_y, dt, feedforward=ff_vy)
+                            drone_pos_world[0] += vx_cmd * dt
+                            drone_pos_world[1] += vy_cmd * dt
+                            velocity_cmd_magnitude = float(np.hypot(vx_cmd, vy_cmd))
+
+                            # Centre-offset for the trace (locked bbox centre vs image centre).
+                            img_cx = 0.5 * (image_size[1] - 1)
+                            img_cy = 0.5 * (image_size[0] - 1)
+                            center_offset_px = float(np.hypot(u - img_cx, v - img_cy))
+                        else:
+                            # Hold-last-known (SIM-17). Freeze drone pose; decay integrator state.
+                            ticks_since_lock += 1
+                            if ticks_since_lock >= hlk_trigger:
+                                pid_x.reset()
+                                pid_y.reset()
+                                target_tracker.reset()
+
+                    elif mode == "user":
+                        assert user_ctrl is not None
+                        assert mjpeg_server is not None
+                        pressed = mjpeg_server.get_pressed_keys()
+                        current_pose = Pose(
+                            x=float(drone_pos_world[0]),
+                            y=float(drone_pos_world[1]),
+                            z=float(drone_pos_world[2]),
+                            yaw_rad=drone_yaw_rad,
+                        )
+                        intended = user_ctrl.step(current_pose, pressed, dt)
+                        safe = apply_slide_along(world, current_pose, intended)
+                        drone_pos_world[0] = safe.x
+                        drone_pos_world[1] = safe.y
+                        drone_pos_world[2] = safe.z
+                        drone_yaw_rad = safe.yaw_rad
+                        velocity_cmd_magnitude = float(
+                            math.hypot(safe.x - current_pose.x, safe.y - current_pose.y) / dt
+                        )
 
                     # ── Suspect FSM step ─────────────────────────────────
                     suspect_tf_now = suspect.get_transform()
@@ -735,17 +796,68 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                             acc.frames_in_frame += 1
                     acc.distance_samples.append(drone_to_suspect)
 
+                    # Push FSM state to MJPEG server (used by v0c user page for
+                    # the colour panel, submit enable, end modal).
+                    if mjpeg_server is not None:
+                        mjpeg_server.set_fsm_state(
+                            state=fsm_tick.state.value,
+                            countdown_s=fsm_tick.countdown_s,
+                            terminal=bool(fsm_tick.terminal),
+                            result=fsm_tick.submission,
+                        )
+
+                    # User-mode submission grading — only while in PARKED.
+                    if (
+                        mode == "user"
+                        and mjpeg_server is not None
+                        and fsm_tick.state == SuspectState.PARKED
+                        and not fsm_tick.terminal
+                    ):
+                        sub = mjpeg_server.get_submission()
+                        if sub is not None:
+                            mjpeg_server.clear_submission()
+                            passed = False
+                            if gt_bbox is not None:
+                                bx1, by1, bx2, by2 = sub["bbox"]
+                                cx = 0.5 * (bx1 + bx2)
+                                cy = 0.5 * (by1 + by2)
+                                gx1, gy1, gx2, gy2 = gt_bbox
+                                passed = (gx1 <= cx <= gx2) and (gy1 <= cy <= gy2)
+                            fsm_submission = "user_pass" if passed else "user_fail"
+                            fsm_terminal_state = SuspectState.PARKED
+                            log.info(
+                                "user submission graded: %s (bbox=%s, gt=%s)",
+                                fsm_submission, sub["bbox"], gt_bbox,
+                            )
+                            mjpeg_server.set_fsm_state(
+                                state=fsm_tick.state.value,
+                                countdown_s=fsm_tick.countdown_s,
+                                terminal=True,
+                                result=fsm_submission,
+                            )
+                            # Write a final overlay frame + break the loop.
+                            # (overlay + trace happen below before break)
+
                     # ── Overlay + live push ──────────────────────────────
+                    # User mode: no tracker overlay, no GT bbox (user finds the
+                    # suspect themselves), no running accuracy (n/a).
                     running_id_accuracy = (
                         frames_id_correct / frames_suspect_visible
                         if frames_suspect_visible > 0 else None
                     )
                     hud_extra = _fsm_hud_line(fsm_tick)
-                    overlay = _render_mission_overlay(
-                        frame_bgr, gt_bbox, tracks, locked_track_id, track_scores,
-                        frames_total, running_id_accuracy, drone_to_suspect,
-                        hud_extra=hud_extra,
-                    )
+                    if mode == "user":
+                        overlay = _render_mission_overlay(
+                            frame_bgr, None, [], None, {},
+                            frames_total, None, drone_to_suspect,
+                            hud_extra=hud_extra,
+                        )
+                    else:
+                        overlay = _render_mission_overlay(
+                            frame_bgr, gt_bbox, tracks, locked_track_id, track_scores,
+                            frames_total, running_id_accuracy, drone_to_suspect,
+                            hud_extra=hud_extra,
+                        )
                     if video_writer is not None:
                         video_writer.write(overlay)
                     if mjpeg_server is not None:
@@ -782,6 +894,11 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                     if fsm_tick.terminal:
                         fsm_submission = fsm_tick.submission
                         log.info("FSM terminal at tick %d: submission=%s",
+                                 tick, fsm_submission)
+                        break
+                    # User-mode bbox grading set fsm_submission out-of-band.
+                    if fsm_submission in ("user_pass", "user_fail"):
+                        log.info("User submission terminal at tick %d: %s",
                                  tick, fsm_submission)
                         break
             finally:

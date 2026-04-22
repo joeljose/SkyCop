@@ -477,6 +477,45 @@ Plus a per-tick `trace.jsonl` (`drone_to_suspect_m`, `center_offset_px`, `veloci
 
 ---
 
+### D-16 · v0c user-controlled drone mode — WASD-QE flight, slide-along collision, draw-bbox submission
+
+**Status:** Decided · **Date:** 2026-04-22 · **Issue:** #49
+
+**Context.** v0a shipped the autonomous pipeline; v0b added a menu with a "Manual Pursuit" placeholder button. v0c makes that button live — the user flies the drone themselves and submits a bounding box on the parked suspect, graded by the same rule as AI mode. The pursuit pipeline (YOLO + ByteTrack + HSV fingerprint + flight PID) is disabled in user mode; the suspect FSM still runs.
+
+**Decisions.**
+
+1. **Drone-heading-follow control scheme (Option B).** Camera yaw = drone body yaw; W / S = body-forward / back; A / D = body-strafe; Q / E = yaw at 60°/s (config-tunable); Shift / Ctrl = altitude ± 5 m/s. **Snappy feel** (no momentum, per v0c grill) — key pressed → full velocity; released → zero. The contrasting option (A, fixed north-up) was considered and rejected because the user explicitly valued real-drone-like immersion; B matches consumer/FPV drone conventions ([DJI Mode 2](https://steamcommunity.com/app/2707940/discussions/0/4526764457370298140/)). The common disorientation argument against B is mitigated by our auto-gimballed camera (pitch fixed at −75°, no cockpit tilt) + visible colour-coded state panel.
+
+2. **WebSocket input transport (`flask-sock`).** JS sends `keydown`/`keyup` events as they happen; server maintains a thread-safe pressed-key set; mission loop snapshots it each tick. HTTP polling was considered — would have been adequate for 20 Hz tick rate — but the event-based WebSocket model avoids the "did my keyup get lost?" class of bugs and costs one trivial pip dep.
+
+3. **Slide-along collision (walls + ground).** `skycop.control.collision.apply_slide_along` casts a ray from the drone's current position to the intended pose; on hit, motion is decomposed into (parallel-to-surface, kept) + (perpendicular-to-surface, blocked) using the hit normal estimated from the hit-point-to-drone vector. Ground floor handled by `UserDroneConfig.min_altitude_m`. CARLA's `world.cast_ray` in 0.9.16 returns labels but no explicit normals — the from-hit-to-drone estimate works well enough for AABB-approximated urban geometry. Soft-gate fallback is implicit (degenerate normal → cancel the motion entirely).
+
+4. **Draw-bbox + Submit both gate on `FSM.state == PARKED`.** (v0c grill 5a-i + 5b-ii.) During FLEEING / ROAMING / PARKING, the user just flies to keep the suspect on screen; no bbox drawing, no submit. On PARKED entry, the canvas unlocks (pointer-events: auto) and the Submit button turns primary green. The user has the same 60 s countdown as AI mode. This makes the game fair across modes (both get one 60 s submission window) and prevents pre-committing to a rolling target.
+
+5. **Colour-coded state panel replaces the v0a HUD flash.** Persistent top-left panel: FLEEING red / ROAMING orange / PARKING yellow / PARKED green. Panel updates via `GET /state` polled every 250 ms by the page. PARKED shows the live countdown. Rationale: one-time flashes are easy to miss during active pursuit; a persistent colour cue is scannable at a glance without drawing attention away from the camera.
+
+6. **Grading is identical to AI mode — bbox-centre-in-GT projection, pass / fail.** Outcomes written to `summary.json.fsm_submission`: `user_pass`, `user_fail`, `timeout_lose`. Failing to reach a parking lot is still not a lose condition; only failing to submit within 60 s post-PARKED is. Same semantics as D-14.
+
+7. **AI pipeline strictly disabled in user mode.** Mission loop constructs `ByteTrackAdapter` / `PursuitPID` / `TargetStateTracker` only when `mode == 'ai'`. YOLO weights are only required in AI mode. The overlay in user mode also omits GT bboxes and tracker boxes — the user finds the suspect themselves, no cheats. Keeping both modes in one `mission.run_mission` function rather than two parallel entrypoints means the FSM, scene setup, summary output, and trace writing all stay shared and consistent.
+
+8. **Menu wires `mode=ai|user` through `POST /start`.** The v0b menu's two cards each POST a hidden `mode` field. Server stores the selected mode, and `run_mission` reads it after `wait_for_start()`. `cfg.mission.mode` is honoured as the default if no menu is attached (e.g., headless tests).
+
+**Deferred to v0d and beyond:**
+
+- Momentum / inertia flight model — snappy may feel arcadey; upgrade if playtesting says so.
+- Gamepad input — keyboard-only for v0c.
+- Nadir-pitch snap during draw-bbox (press Tab to switch from −75° to −90° for flatter bbox geometry).
+- Replay / record mode for human-vs-AI A/B comparisons (§6.4 requirement).
+
+**Open risks (v0c playtest watch list):**
+
+- Hit-normal estimation quality in complex geometry — fallback is soft-gate.
+- Yaw rate (60°/s) may be too slow; it's config-tunable.
+- Bbox precision at altitude 25 m / pitch −75° — small cars are ~30–50 px wide. May need the nadir snap if playtesting is frustrating.
+
+---
+
 ## 13. Open Questions
 
 - **Suspect FSM owner.** ~~Scripts 03/04 use TM autopilot with reckless knobs. The proper Fleeing→Roaming→Parking→Parked FSM (FR-07..11) is deferred.~~ Resolved by D-14 — FSM lives in `skycop.sim.suspect_fsm`, CARLA side-effects in the mission loop.

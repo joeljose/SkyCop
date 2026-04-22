@@ -28,6 +28,7 @@ def main() -> None:
         title="SkyCop Pursuit",
         hud="AI drone pursuit · live MJPEG feed",
         use_start_trigger=True,
+        image_size=(int(cfg.camera.height), int(cfg.camera.width)),
     )
     server.start(port=port)
     log.info("live view + start page: http://localhost:%d", port)
