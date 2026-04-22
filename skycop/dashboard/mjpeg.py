@@ -104,7 +104,7 @@ _LIVE_USER_HTML = """<!DOCTYPE html>
 <div id="end">
   <h1 id="end-title">—</h1>
   <p id="end-detail">—</p>
-  <a href="/">Back to menu</a>
+  <a href="/menu">Back to menu</a>
 </div>
 
 <script>
@@ -342,6 +342,15 @@ class MJPEGServer:
             with self._lock:
                 self._started_mode = mode
             self._start_event.set()
+            return redirect(url_for("_index"))
+
+        @self.app.route("/menu")
+        def _menu() -> Response:
+            # "Back to menu" link in the end modal — force-rearm the server
+            # so the splash shows even if the previous round hasn't fully
+            # torn down yet, then redirect. Eliminates a race where the
+            # browser would land on the stale live page.
+            self.reset_for_menu()
             return redirect(url_for("_index"))
 
         @self.app.route("/stream")
