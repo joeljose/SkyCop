@@ -1,11 +1,23 @@
 # SkyCop — Autonomous Drone Pursuit Assistance System
 ## Requirements Document
 
-**Version:** 1.1  
-**Status:** Draft  
-**Project type:** Senior Computer Vision Engineer Portfolio Project  
-**Simulation platform:** CARLA 0.9.16 (Town10HD)  
-**Target hardware:** NVIDIA RTX 4050 6GB VRAM, 16GB RAM  
+**Version:** 1.2
+**Status:** Draft
+**Project type:** Senior Computer Vision Engineer Portfolio Project
+**Simulation platform:** CARLA 0.9.16 (Town10HD)
+**Target hardware:** NVIDIA RTX 4050 6GB VRAM, 16GB RAM
+
+**Status legend** (used in every requirement table below):
+
+| Symbol | Meaning |
+|---|---|
+| ✅ | Done — in the codebase and exercised |
+| 🔨 | In progress — partial implementation; see the referenced PR/progress log |
+| ⬜ | Planned — acknowledged but not started; on the backlog |
+| ⛔ | Superseded / dropped — decision logged (see `docs/design.md` design log) |
+| ⚠ | Known issue / implementation deviates — text is aspirational or the real behaviour differs |
+
+Current state snapshots live in [`docs/progress.md`](progress.md); design decisions that drove a ⛔ status are recorded in [`docs/design.md`](design.md).
 
 ---
 
@@ -103,35 +115,35 @@ The suspect roams for a configurable duration, then drives to a surface parking 
 
 ### 3.2 Mission Flow
 
-| ID | Requirement |
-|----|-------------|
-| FR-01 | System shall generate a suspect vehicle scenario on mission start with randomised vehicle model, colour, and route |
-| FR-02 | Suspect shall begin driving and committing traffic violations immediately on mission start |
-| FR-03 | On the first traffic violation, a dispatch alert shall be sent to the player within 1 second, including last known location and vehicle description. The drone shall receive a number of violation reports determined by difficulty level (with updated location each time), then no further violation alerts. **Acquisition algorithm** — turning dispatch text + location into a visual lock — draws from road-constrained target tracking (RBPF on road graphs, HMM map matching) and description-conditioned detection (OWL-ViT, GroundingDINO, CLIP-ReID). Full algorithm to be specified in §4.8 "Target Acquisition" (follow-up PR). See `docs/literature_survey.md` §4. |
-| FR-04 | Drone shall be deployable by the player within 10 seconds of receiving a dispatch alert |
-| FR-05 | The mission shall end when the suspect parks and the system either confirms or fails to identify the suspect vehicle |
-| FR-06 | The system shall produce a scored debrief at mission end comparing human player vs autonomous CV performance |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| FR-01 | System shall generate a suspect vehicle scenario on mission start with randomised vehicle model, colour, and route | ✅ via `mission.seed_mode: random` |
+| FR-02 | Suspect shall begin driving and committing traffic violations immediately on mission start | ✅ reckless TM knobs on the suspect |
+| FR-03 | On the first traffic violation, a dispatch alert shall be sent to the player within 1 second, including last known location and vehicle description. The drone shall receive a number of violation reports determined by difficulty level (with updated location each time), then no further violation alerts. **Acquisition algorithm** — turning dispatch text + location into a visual lock — draws from road-constrained target tracking (RBPF on road graphs, HMM map matching) and description-conditioned detection (OWL-ViT, GroundingDINO, CLIP-ReID). Full algorithm to be specified in §4.8 "Target Acquisition" (follow-up PR). See `docs/literature_survey.md` §4. | ⬜ Mission v0 cheats with CARLA actor_id |
+| FR-04 | ~~Drone shall be deployable by the player within 10 seconds of receiving a dispatch alert~~ | ⛔ Nonsensical for our arch — drone spawns with the scene; to be re-scoped when FR-03 dispatch lands |
+| FR-05 | The mission shall end when the suspect parks and the system either confirms or fails to identify the suspect vehicle | ⬜ v0 ends on timer |
+| FR-06 | The system shall produce a scored debrief at mission end comparing human player vs autonomous CV performance | ⬜ requires game layer + scoring |
 
 ### 3.3 Suspect Vehicle Behaviour
 
 The suspect is unaware of the drone. Its behaviour is driven by a scripted finite state machine, not reactive to drone position.
 
-| ID | Requirement |
-|----|-------------|
-| FR-07 | Suspect shall follow a 4-state FSM: **Fleeing → Roaming → Parking → Parked** |
-| FR-08 | **Fleeing:** suspect exceeds speed limit by 60–100%, runs red lights, changes lanes aggressively. The first violation triggers dispatch; after all violation reports for the current difficulty are sent, the roam timer starts. |
-| FR-09 | **Roaming:** suspect continues driving at high speed along a randomised route through the city. This is the primary tracking window. Duration: configurable (default 60–120 seconds). |
-| FR-10 | **Parking:** suspect drives to a pre-designated surface parking lot and pulls into a bay. Speed gradually decreases to normal during approach. |
-| FR-11 | **Parked:** suspect vehicle stops and remains stationary for the rest of the mission. The parking lot shall contain 20–40 other stationary vehicles with `set_simulate_physics(False)` to prevent drift. |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| FR-07 | Suspect shall follow a 4-state FSM: **Fleeing → Roaming → Parking → Parked** | ⬜ Mission v0 uses TM autopilot with reckless knobs only |
+| FR-08 | **Fleeing:** suspect exceeds speed limit by 60–100%, runs red lights, changes lanes aggressively. The first violation triggers dispatch; after all violation reports for the current difficulty are sent, the roam timer starts. | 🔨 reckless-driving knobs in place; violation detection + dispatch pending |
+| FR-09 | **Roaming:** suspect continues driving at high speed along a randomised route through the city. This is the primary tracking window. Duration: configurable (default 60–120 seconds). | 🔨 TM reckless driving covers behaviour; FSM state + per-difficulty duration pending |
+| FR-10 | **Parking:** suspect drives to a pre-designated surface parking lot and pulls into a bay. Speed gradually decreases to normal during approach. | ⬜ |
+| FR-11 | **Parked:** suspect vehicle stops and remains stationary for the rest of the mission. The parking lot shall contain 20–40 other stationary vehicles with `set_simulate_physics(False)` to prevent drift. | ⬜ |
 
 ### 3.4 Alert Events
 
-| ID | Requirement |
-|----|-------------|
-| FR-12 | System shall generate simulated CCTV ping events when suspect passes designated junction cameras, providing updated location |
-| FR-13 | System shall generate witness report events with approximate (±50m) location at random intervals during Fleeing and Roaming states |
-| FR-14 | System shall generate intercept suggestion events based on route prediction output |
-| FR-15 | All events shall be delivered to the dashboard via WebSocket with a structured JSON payload |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| FR-12 | System shall generate simulated CCTV ping events when suspect passes designated junction cameras, providing updated location | ⬜ |
+| FR-13 | System shall generate witness report events with approximate (±50m) location at random intervals during Fleeing and Roaming states | ⬜ |
+| FR-14 | System shall generate intercept suggestion events based on route prediction output | ⬜ requires route prediction (see §13 tech stack) |
+| FR-15 | All events shall be delivered to the dashboard via WebSocket with a structured JSON payload | ⬜ WebSocket event bus not yet built; MJPEG is the only live surface today |
 
 ---
 
@@ -139,79 +151,79 @@ The suspect is unaware of the drone. Its behaviour is driven by a scripted finit
 
 ### 4.1 Vehicle Detection
 
-| ID | Requirement |
-|----|-------------|
-| CV-01 | System shall use YOLOv8s (single-class `vehicle`; see design D-08 for size and D-09 for taxonomy) fine-tuned on CARLA-generated synthetic data. VisDrone warm-start optional — used only if the CARLA-only fine-tune underperforms against the eval holdout. |
-| CV-02 | Detection shall run at minimum 20 FPS on RTX 4050 using fp16 inference |
-| CV-03 | System shall achieve minimum 85% mAP@0.5 on aerial vehicle detection benchmark. **⚠ Aspirational**: published VisDrone-DET SOTA sits around 45–55% mAP@0.5 for aerial fine-tuned YOLO variants; 85% assumes in-domain CARLA training will substantially exceed VisDrone-like distribution — to be revalidated after exp 08 (see `docs/literature_survey.md` §1, §7). |
-| CV-04 | Training data shall be generated using CARLA's instance segmentation camera to produce pixel-accurate bounding box labels automatically — no manual annotation |
-| CV-05 | Detection input resolution shall be 640×640 pixels (standard YOLO input) |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-01 | System shall use YOLOv8s (single-class `vehicle`; see design D-08 for size and D-09 for taxonomy) fine-tuned on CARLA-generated synthetic data. VisDrone warm-start optional — used only if the CARLA-only fine-tune underperforms against the eval holdout. | ✅ exp 08 landed; VisDrone warm-start not needed |
+| CV-02 | Detection shall run at minimum 20 FPS on RTX 4050 using fp16 inference | ✅ ~25 FPS measured (exp 09) |
+| CV-03 | System shall achieve minimum 85% mAP@0.5 on aerial vehicle detection benchmark. **⚠ Aspirational**: published VisDrone-DET SOTA sits around 45–55% mAP@0.5 for aerial fine-tuned YOLO variants; 85% assumes in-domain CARLA training will substantially exceed VisDrone-like distribution — to be revalidated after exp 08 (see `docs/literature_survey.md` §1, §7). | ✅ same-map 0.962; ⚠ cross-map 0.581 (see D-11) |
+| CV-04 | Training data shall be generated using CARLA's instance segmentation camera to produce pixel-accurate bounding box labels automatically — no manual annotation | ⚠ works but seg camera segfaults on teardown (see `docs/carla_caveats.md` §6b); mission GT uses world-bbox projection instead |
+| CV-05 | Detection input resolution shall be 640×640 pixels (standard YOLO input) | ✅ |
 
 ### 4.2 Multi-Object Tracking
 
-| ID | Requirement |
-|----|-------------|
-| CV-06 | System shall use a tracking-by-detection MOT with Kalman motion prediction — ByteTrack as the v1 baseline ([Zhang et al. 2022](https://arxiv.org/abs/2110.06864)); BoT-SORT ([arXiv:2206.14651](https://arxiv.org/abs/2206.14651)) or StrongSORT ([arXiv:2202.13514](https://arxiv.org/abs/2202.13514)) are preferred for the moving-camera scenario and may replace ByteTrack after exp 10 measures the camera-motion compensation benefit. See `docs/literature_survey.md` §2. |
-| CV-07 | Tracker shall maintain track continuity through partial occlusion (e.g. other vehicles passing in front) |
-| CV-08 | Tracker shall assign persistent track IDs that survive across frames |
-| CV-09 | Suspect track ID shall be assigned at first confirmed detection and maintained throughout the mission |
-| CV-10 | System shall handle high-speed target motion (up to 130 km/h) without track loss on open roads |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-06 | System shall use a tracking-by-detection MOT with Kalman motion prediction — ByteTrack as the v1 baseline ([Zhang et al. 2022](https://arxiv.org/abs/2110.06864)); BoT-SORT ([arXiv:2206.14651](https://arxiv.org/abs/2206.14651)) or StrongSORT ([arXiv:2202.13514](https://arxiv.org/abs/2202.13514)) are preferred for the moving-camera scenario and may replace ByteTrack after exp 10 measures the camera-motion compensation benefit. See `docs/literature_survey.md` §2. | ✅ ByteTrack shipped; exp 10 + 10b confirmed it's sufficient (D-11) |
+| CV-07 | Tracker shall maintain track continuity through partial occlusion (e.g. other vehicles passing in front) | ✅ max 0.996 continuity per exp 10 |
+| CV-08 | Tracker shall assign persistent track IDs that survive across frames | ✅ |
+| CV-09 | Suspect track ID shall be assigned at first confirmed detection and maintained throughout the mission | ✅ via fingerprint sticky-rebind (Mission v0) |
+| CV-10 | System shall handle high-speed target motion (up to 130 km/h) without track loss on open roads | ✅ (TM reckless suspect regularly exceeds 80 km/h) |
 
 ### 4.3 Vehicle Fingerprinting
 
 The system shall build and maintain a multi-attribute fingerprint of the suspect vehicle from the top-down aerial view. License plate recognition is explicitly out of scope — plates face front/rear and are not visible from above at operational altitude. The fingerprint replaces ALPR and provides richer, more actionable information for ground units.
 
-| ID | Attribute | Method |
-|----|-----------|--------|
-| CV-11 | Colour | HSV histogram on roof bounding box region |
-| CV-12 | Vehicle class | One of `{car, van, truck, bus}`; sourced from the dispatch description at mission start and from CARLA blueprint metadata at training-data-capture time. **Not** produced by the detector — the detector is single-class (see design D-09). The fingerprint compares the dispatch class against candidates' blueprint-derived class, with soft-score weighting rather than hard filtering. |
-| CV-13 | Roof shape | Bounding box aspect ratio + contour descriptor |
-| CV-14 | Apparent size | Normalised bounding box area relative to altitude |
-| CV-15 | Speed | Kalman filter velocity estimate from track positions |
-| CV-16 | Heading | Track direction vector over last 10 frames |
+| ID | Attribute | Method | Status |
+|----|-----------|--------|--------|
+| CV-11 | Colour | HSV histogram on roof bounding box region | ✅ Mission v0 |
+| CV-12 | Vehicle class | One of `{car, van, truck, bus}`; sourced from the dispatch description at mission start and from CARLA blueprint metadata at training-data-capture time. **Not** produced by the detector — the detector is single-class (see design D-09). The fingerprint compares the dispatch class against candidates' blueprint-derived class, with soft-score weighting rather than hard filtering. | ⬜ blocked on dispatch (FR-03) |
+| CV-13 | Roof shape | Bounding box aspect ratio + contour descriptor | ⬜ |
+| CV-14 | Apparent size | Normalised bounding box area relative to altitude | ⬜ |
+| CV-15 | Speed | Kalman filter velocity estimate from track positions | ⬜ |
+| CV-16 | Heading | Track direction vector over last 10 frames | ⬜ |
 
 The fingerprint shall be stored as a structured object and updated every 10 frames during active tracking.
 
 ### 4.4 Occlusion Recovery
 
-| ID | Requirement |
-|----|-------------|
-| CV-17 | When tracker loses the suspect track (e.g. vehicle passes under bridge), system shall enter occlusion recovery mode |
-| CV-18 | Recovery shall search the predicted re-emergence zone derived from road graph and last known velocity. Grounded in road-constrained tracking literature ([VS-IMM](https://ieeexplore.ieee.org/document/869492), [RBPF](https://arxiv.org/abs/1301.3853), [HMM map matching](https://dl.acm.org/doi/10.1145/1653771.1653818)) — see `docs/literature_survey.md` §4. |
-| CV-19 | Each candidate vehicle in the search zone shall be scored against the stored fingerprint using weighted multi-attribute matching. Matching approach draws from vehicle Re-ID literature ([VRAI](https://arxiv.org/abs/1904.01400), [CLIP-ReID](https://arxiv.org/abs/2211.13977) for text-description-to-visual matching) — see `docs/literature_survey.md` §3. |
-| CV-20 | System shall re-acquire the suspect track if a candidate scores above 0.75 confidence threshold. **⚠ Speculative**: threshold is un-calibrated; to be tuned empirically. |
-| CV-21 | System shall log each occlusion event and recovery outcome for evaluation |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-17 | When tracker loses the suspect track (e.g. vehicle passes under bridge), system shall enter occlusion recovery mode | ⬜ |
+| CV-18 | Recovery shall search the predicted re-emergence zone derived from road graph and last known velocity. Grounded in road-constrained tracking literature ([VS-IMM](https://ieeexplore.ieee.org/document/869492), [RBPF](https://arxiv.org/abs/1301.3853), [HMM map matching](https://dl.acm.org/doi/10.1145/1653771.1653818)) — see `docs/literature_survey.md` §4. | ⬜ |
+| CV-19 | Each candidate vehicle in the search zone shall be scored against the stored fingerprint using weighted multi-attribute matching. Matching approach draws from vehicle Re-ID literature ([VRAI](https://arxiv.org/abs/1904.01400), [CLIP-ReID](https://arxiv.org/abs/2211.13977) for text-description-to-visual matching) — see `docs/literature_survey.md` §3. | ⬜ |
+| CV-20 | System shall re-acquire the suspect track if a candidate scores above 0.75 confidence threshold. **⚠ Speculative**: threshold is un-calibrated; to be tuned empirically. | ⬜ |
+| CV-21 | System shall log each occlusion event and recovery outcome for evaluation | ⬜ |
 
 ### 4.5 Lost Track Fallback
 
 When occlusion recovery fails (no candidate above threshold within the predicted zone):
 
-| ID | Requirement |
-|----|-------------|
-| CV-22 | System shall hold position at last known location for 5 seconds, scanning nearby roads |
-| CV-23 | If not re-acquired, system shall execute an expanding spiral search pattern centred on last known position, covering a radius up to 200m. Informed by [POMDP UAV search with negative-information updates (Chung & Burdick 2012)](https://ieeexplore.ieee.org/document/6051437) — negative observations reduce posterior belief in the searched cell — `docs/literature_survey.md` §4. |
-| CV-24 | During search, all CCTV pings and witness reports (if available at current difficulty) shall override the search pattern and redirect the drone |
-| CV-25 | If the suspect is not re-acquired within 60 seconds of track loss, system shall flag the track as lost and continue searching until mission timeout. **⚠ 60s target is un-cited**: 5–30s occlusion recovery is an open empirical question in the literature (see `docs/literature_survey.md` §3 occlusion recovery note). To be validated during exp 10+. |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-22 | System shall hold position at last known location for 5 seconds, scanning nearby roads | ⬜ |
+| CV-23 | If not re-acquired, system shall execute an expanding spiral search pattern centred on last known position, covering a radius up to 200m. Informed by [POMDP UAV search with negative-information updates (Chung & Burdick 2012)](https://ieeexplore.ieee.org/document/6051437) — negative observations reduce posterior belief in the searched cell — `docs/literature_survey.md` §4. | ⬜ |
+| CV-24 | During search, all CCTV pings and witness reports (if available at current difficulty) shall override the search pattern and redirect the drone | ⬜ |
+| CV-25 | If the suspect is not re-acquired within 60 seconds of track loss, system shall flag the track as lost and continue searching until mission timeout. **⚠ 60s target is un-cited**: 5–30s occlusion recovery is an open empirical question in the literature (see `docs/literature_survey.md` §3 occlusion recovery note). To be validated during exp 10+. | ⬜ |
 
 ### 4.6 Parking Lot Re-Identification
 
-| ID | Requirement |
-|----|-------------|
-| CV-26 | When suspect vehicle velocity drops below 2 km/h for 3 consecutive seconds, system shall enter parking identification mode |
-| CV-27 | System shall use **approach trajectory tracking** as the primary identification method — the drone observes which parking bay the suspect pulls into |
-| CV-28 | As secondary confirmation, system shall score all visible stationary vehicles in the parking lot against the stored fingerprint |
-| CV-29 | System shall output a ranked candidate list with confidence scores |
-| CV-30 | If top candidate scores above 0.85, system shall declare confirmed identification |
-| CV-31 | If top candidate scores between 0.60 and 0.85, system shall flag as uncertain and highlight top 3 candidates on dashboard |
-| CV-32 | If top candidate scores below 0.60, system shall declare mission failed and log the tracking degradation point in debrief |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-26 | When suspect vehicle velocity drops below 2 km/h for 3 consecutive seconds, system shall enter parking identification mode | ⬜ |
+| CV-27 | System shall use **approach trajectory tracking** as the primary identification method — the drone observes which parking bay the suspect pulls into | ⬜ |
+| CV-28 | As secondary confirmation, system shall score all visible stationary vehicles in the parking lot against the stored fingerprint | ⬜ |
+| CV-29 | System shall output a ranked candidate list with confidence scores | ⬜ |
+| CV-30 | If top candidate scores above 0.85, system shall declare confirmed identification | ⬜ threshold un-calibrated |
+| CV-31 | If top candidate scores between 0.60 and 0.85, system shall flag as uncertain and highlight top 3 candidates on dashboard | ⬜ threshold un-calibrated |
+| CV-32 | If top candidate scores below 0.60, system shall declare mission failed and log the tracking degradation point in debrief | ⬜ threshold un-calibrated |
 
 ### 4.7 Speed Estimation
 
-| ID | Requirement |
-|----|-------------|
-| CV-33 | System shall estimate suspect vehicle speed in km/h from pixel displacement between frames, corrected for drone altitude and camera FOV |
-| CV-34 | Speed estimate shall be displayed on dashboard and included in fingerprint profile |
-| CV-35 | Speed estimation error shall not exceed ±15 km/h at operational altitude |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CV-33 | System shall estimate suspect vehicle speed in km/h from pixel displacement between frames, corrected for drone altitude and camera FOV | ⬜ |
+| CV-34 | Speed estimate shall be displayed on dashboard and included in fingerprint profile | ⬜ blocked on dashboard |
+| CV-35 | Speed estimation error shall not exceed ±15 km/h at operational altitude | ⬜ threshold un-calibrated |
 
 ---
 
@@ -219,23 +231,23 @@ When occlusion recovery fails (no candidate above threshold within the predicted
 
 ### 5.1 Environment
 
-| ID | Requirement |
-|----|-------------|
-| SIM-01 | Simulation shall use CARLA Town10HD_Opt map — dense urban environment with junctions, bridges, and surface parking lots |
-| SIM-02 | System shall spawn 40–60 NPC vehicles via CARLA Traffic Manager on mission start |
-| SIM-03 | Traffic shall be configured with realistic urban density — slight speed variation, occasional lane changes |
-| SIM-04 | Simulation shall run in synchronous mode at 20 FPS fixed timestep for deterministic behaviour |
-| SIM-05 | CARLA shall run at **Low quality level** to stay within the 6GB VRAM budget |
-| SIM-06 | Weather shall be configurable — minimum three scenarios: ClearNoon, CloudyNight, WetCloudy |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| SIM-01 | Simulation shall use CARLA Town10HD_Opt map — dense urban environment with junctions, bridges, and surface parking lots | ✅ |
+| SIM-02 | System shall spawn 40–60 NPC vehicles via CARLA Traffic Manager on mission start | ✅ defaults to 50 |
+| SIM-03 | Traffic shall be configured with realistic urban density — slight speed variation, occasional lane changes | ✅ TM defaults |
+| SIM-04 | Simulation shall run in synchronous mode at 20 FPS fixed timestep for deterministic behaviour | ✅ |
+| SIM-05 | CARLA shall run at **Low quality level** to stay within the 6GB VRAM budget | ✅ |
+| SIM-06 | Weather shall be configurable — minimum three scenarios: ClearNoon, CloudyNight, WetCloudy | ✅ via `mission.weather` |
 
 ### 5.2 Aerial Camera
 
-| ID | Requirement |
-|----|-------------|
-| SIM-07 | Aerial camera shall be an RGB sensor: 1280×720 resolution, 90° FOV |
-| SIM-08 | An instance segmentation camera co-located with the RGB camera shall run in parallel for training data generation |
-| SIM-09 | Camera shall implement simulated noise: motion blur proportional to speed, vibration jitter (±2px), atmospheric haze at altitude |
-| SIM-10 | System shall support both spectator camera (visual preview) and programmatic RGB sensor (CV pipeline input) simultaneously |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| SIM-07 | Aerial camera shall be an RGB sensor: 1280×720 resolution, 90° FOV | ✅ |
+| SIM-08 | An instance segmentation camera co-located with the RGB camera shall run in parallel for training data generation | ⚠ seg camera segfaults on destroy after long dual-sensor runs (see `docs/carla_caveats.md` §6b). Used by legacy scripts 06–10; mission uses world-bbox projection instead |
+| SIM-09 | ~~Camera shall implement simulated noise: motion blur proportional to speed, vibration jitter (±2px), atmospheric haze at altitude~~ | ⬜ Not implemented. Domain randomisation is nice-to-have, not mission-critical |
+| SIM-10 | ~~System shall support both spectator camera (visual preview) and programmatic RGB sensor (CV pipeline input) simultaneously~~ | ⛔ Spectator unused; only programmatic RGB is implemented. MJPEG provides the visual preview surface |
 
 ### 5.3 Altitude Control
 
@@ -250,12 +262,12 @@ When occlusion recovery fails (no candidate above threshold within the predicted
 
 ### 5.4 PID Drone Controller
 
-| ID | Requirement |
-|----|-------------|
-| SIM-15 | PID controller shall maintain suspect vehicle bounding box centred in frame using proportional-integral-derivative control on X and Y axes |
-| SIM-16 | Altitude PID axis shall use bounding box pixel height as proxy for distance — targeting 80px apparent vehicle height |
-| SIM-17 | Controller shall hold last known position when tracker loses the suspect, rather than drifting |
-| SIM-18 | PID parameters shall be tunable via configuration file without code changes |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| SIM-15 | PID controller shall maintain suspect vehicle bounding box centred in frame using proportional-integral-derivative control on X and Y axes | ⬜ Mission v0 positions the camera from CARLA GT (omniscient); PID is the next major unit (Mission v1a) |
+| SIM-16 | Altitude PID axis shall use bounding box pixel height as proxy for distance — targeting 80px apparent vehicle height | ⬜ threshold un-calibrated |
+| SIM-17 | Controller shall hold last known position when tracker loses the suspect, rather than drifting | ⬜ |
+| SIM-18 | PID parameters shall be tunable via configuration file without code changes | ⬜ |
 
 ---
 
@@ -263,12 +275,12 @@ When occlusion recovery fails (no candidate above threshold within the predicted
 
 ### 6.1 Game Modes
 
-| ID | Requirement |
-|----|-------------|
-| GM-01 | System shall support Manual Mode — player controls drone camera using keyboard via browser interface |
-| GM-02 | System shall support Autonomous Mode — CV pipeline controls drone automatically |
-| GM-03 | Player shall be able to toggle between modes at any point during a mission using Spacebar |
-| GM-04 | Both modes shall play identical scenarios (same seed) for direct performance comparison |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| GM-01 | System shall support Manual Mode — player controls drone camera using keyboard via browser interface | ⬜ |
+| GM-02 | System shall support Autonomous Mode — CV pipeline controls drone automatically | 🔨 Mission v0 autonomous loop lives; "mode" flag not yet exposed |
+| GM-03 | Player shall be able to toggle between modes at any point during a mission using Spacebar | ⬜ |
+| GM-04 | Both modes shall play identical scenarios (same seed) for direct performance comparison | ⬜ |
 
 ### 6.2 Player Controls (Manual Mode)
 
@@ -307,18 +319,20 @@ Controls are captured via the browser (no local display required — runs headle
 
 ## 7. Dashboard Requirements
 
-| ID | Requirement |
-|----|-------------|
-| DB-01 | Dashboard shall display live Leaflet.js city map with real-time drone position marker |
-| DB-02 | Dashboard shall draw suspect vehicle trail as a polyline updated at 5 Hz |
-| DB-03 | Dashboard shall display top 3 predicted escape route corridors as coloured overlays with probability labels |
-| DB-04 | Dashboard shall display live drone camera feed with detection overlay (bounding box, track ID, speed, confidence) |
-| DB-05 | Dashboard shall show a timestamped alert queue on the right panel — dispatch alerts, CCTV pings, witness reports |
-| DB-06 | Dashboard shall display current suspect fingerprint profile: colour swatch, vehicle class, estimated speed, heading |
-| DB-07 | Dashboard shall show live score and mission timer in the top bar |
-| DB-08 | Dashboard shall display a mission debrief screen on completion showing: tracking continuity %, occlusion events, re-acquisitions, final confidence score, and human vs autonomous comparison if both played |
-| DB-09 | All dashboard data shall be received via WebSocket from the CARLA simulation process |
-| DB-10 | Dashboard shall be built with Streamlit and shall be launchable with a single command |
+> MJPEG server (Flask) is the live surface today per [D-05](design.md#d-05). The full Streamlit + Leaflet.js dashboard below is queued for the Dashboard milestone.
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| DB-01 | Dashboard shall display live Leaflet.js city map with real-time drone position marker | ⬜ |
+| DB-02 | Dashboard shall draw suspect vehicle trail as a polyline updated at 5 Hz | ⬜ |
+| DB-03 | Dashboard shall display top 3 predicted escape route corridors as coloured overlays with probability labels | ⬜ |
+| DB-04 | Dashboard shall display live drone camera feed with detection overlay (bounding box, track ID, speed, confidence) | 🔨 MJPEG feed at `:5000` carries GT + tracker + fingerprint overlay today |
+| DB-05 | Dashboard shall show a timestamped alert queue on the right panel — dispatch alerts, CCTV pings, witness reports | ⬜ |
+| DB-06 | Dashboard shall display current suspect fingerprint profile: colour swatch, vehicle class, estimated speed, heading | ⬜ |
+| DB-07 | Dashboard shall show live score and mission timer in the top bar | ⬜ |
+| DB-08 | Dashboard shall display a mission debrief screen on completion showing: tracking continuity %, occlusion events, re-acquisitions, final confidence score, and human vs autonomous comparison if both played | ⬜ |
+| DB-09 | ~~All dashboard data shall be received via WebSocket from the CARLA simulation process~~ | ⛔ MJPEG used instead; reconsider when structured events (FR-15) land |
+| DB-10 | Dashboard shall be built with Streamlit and shall be launchable with a single command | ⬜ MJPEG + Flask is the current placeholder; Streamlit later |
 
 ---
 
@@ -326,27 +340,27 @@ Controls are captured via the browser (no local display required — runs headle
 
 ### 8.1 Pixel-to-World Projection
 
-| ID | Requirement |
-|----|-------------|
-| CM-01 | System shall implement a `PixelToWorldProjector` class converting YOLO bounding box pixel centres to CARLA world coordinates using camera intrinsics, drone position, and ground plane intersection |
-| CM-02 | Projector shall use camera FOV to compute focal length: `fx = (W/2) / tan(FOV/2)` |
-| CM-03 | Projector shall apply rotation matrix from drone pitch and yaw to transform camera ray to world frame |
-| CM-04 | Projector shall assume ground plane at `z = road_height` for ray-plane intersection |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CM-01 | System shall implement a `PixelToWorldProjector` class converting YOLO bounding box pixel centres to CARLA world coordinates using camera intrinsics, drone position, and ground plane intersection | ⬜ (`skycop/cv/gt_projection.py` implements the *inverse* — world→image — today) |
+| CM-02 | Projector shall use camera FOV to compute focal length: `fx = (W/2) / tan(FOV/2)` | ✅ `build_camera_matrix` in `gt_projection.py` |
+| CM-03 | Projector shall apply rotation matrix from drone pitch and yaw to transform camera ray to world frame | 🔨 rotation handled in `project_points`; inverse path pending |
+| CM-04 | Projector shall assume ground plane at `z = road_height` for ray-plane intersection | ⬜ |
 
 ### 8.2 World-to-GPS Conversion
 
-| ID | Requirement |
-|----|-------------|
-| CM-05 | System shall use CARLA's built-in `map.transform_to_geolocation()` to convert world coordinates to latitude/longitude |
-| CM-06 | GPS coordinates shall be broadcast via WebSocket to the Leaflet.js dashboard map |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CM-05 | System shall use CARLA's built-in `map.transform_to_geolocation()` to convert world coordinates to latitude/longitude | ⬜ |
+| CM-06 | GPS coordinates shall be broadcast via WebSocket to the Leaflet.js dashboard map | ⬜ |
 
 ### 8.3 Localisation Evaluation
 
-| ID | Requirement |
-|----|-------------|
-| CM-07 | System shall log the Euclidean error between CV-projected world position and CARLA API ground truth position every frame |
-| CM-08 | Mean localisation error shall be reported per altitude band (15m, 25m, 40m) in the evaluation output |
-| CM-09 | Target localisation accuracy: ≤ 1.5m error at 15m altitude, ≤ 3.5m error at 40m altitude |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| CM-07 | System shall log the Euclidean error between CV-projected world position and CARLA API ground truth position every frame | ⬜ |
+| CM-08 | Mean localisation error shall be reported per altitude band (15m, 25m, 40m) in the evaluation output | ⚠ altitude now pinned at 15 m per D-12; bands for 25 m / 40 m obsolete unless PID work reintroduces multiple altitudes |
+| CM-09 | Target localisation accuracy: ≤ 1.5m error at 15m altitude, ≤ 3.5m error at 40m altitude | ⬜ un-calibrated |
 
 ---
 
@@ -354,31 +368,31 @@ Controls are captured via the browser (no local display required — runs headle
 
 ### 9.1 Performance
 
-| ID | Requirement |
-|----|-------------|
-| NFR-01 | Full CV pipeline (detection + tracking + fingerprint) shall run within a single 50ms tick on RTX 4050 6GB |
-| NFR-02 | YOLOv8 inference shall use fp16 (half precision) to minimise VRAM consumption |
-| NFR-03 | Total VRAM usage (CARLA rendering + CV inference + sensors) shall not exceed 5.5GB |
-| NFR-04 | CARLA shall run at Low quality level; Epic quality exceeds the 6GB VRAM budget |
-| NFR-05 | Dashboard WebSocket latency shall not exceed 100ms |
-| NFR-06 | Depth raycasting for collision safety shall complete within 5ms per tick |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| NFR-01 | Full CV pipeline (detection + tracking + fingerprint) shall run within a single 50ms tick on RTX 4050 6GB | ✅ ~40 ms frame-total in Mission v0 |
+| NFR-02 | YOLOv8 inference shall use fp16 (half precision) to minimise VRAM consumption | ✅ |
+| NFR-03 | Total VRAM usage (CARLA rendering + CV inference + sensors) shall not exceed 5.5GB | ✅ ~4.2 GB steady state |
+| NFR-04 | CARLA shall run at Low quality level; Epic quality exceeds the 6GB VRAM budget | ✅ |
+| NFR-05 | Dashboard WebSocket latency shall not exceed 100ms | ⬜ no WebSocket yet |
+| NFR-06 | ~~Depth raycasting for collision safety shall complete within 5ms per tick~~ | ⛔ obsolete after D-12 (no collision raycasts anymore) |
 
 ### 9.2 Reproducibility
 
-| ID | Requirement |
-|----|-------------|
-| NFR-07 | All CARLA scenarios shall be seeded with a configurable random seed for reproducible evaluation runs |
-| NFR-08 | Project shall include a `requirements.txt` for Python dependency management |
-| NFR-09 | Project shall include a Docker Compose file enabling single-command environment setup |
-| NFR-10 | All trained model weights shall be versioned and downloadable via a release tag |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| NFR-07 | All CARLA scenarios shall be seeded with a configurable random seed for reproducible evaluation runs | ✅ `mission.seed_mode` + `used_seed` in `summary.json` |
+| NFR-08 | Project shall include a `requirements.txt` for Python dependency management | ⚠ Uses `pyproject.toml` instead (PEP 621). Same outcome via `pip install .[dev]` |
+| NFR-09 | Project shall include a Docker Compose file enabling single-command environment setup | ✅ `make setup` + `make up` |
+| NFR-10 | All trained model weights shall be versioned and downloadable via a release tag | ⬜ weights in gitignored `output/`; release-tag workflow not yet wired |
 
 ### 9.3 Code Quality
 
-| ID | Requirement |
-|----|-------------|
-| NFR-11 | All modules shall have unit tests for CV components (detection, fingerprinting, projection) |
-| NFR-12 | Codebase shall follow PEP 8 with type hints on all public methods |
-| NFR-13 | Configuration (PID gains, altitude thresholds, scoring weights) shall be externalised to YAML — no magic numbers in code |
+| ID | Requirement | Status |
+|----|-------------|--------|
+| NFR-11 | All modules shall have unit tests for CV components (detection, fingerprinting, projection) | ✅ ~80 tests, all pure — no CARLA |
+| NFR-12 | Codebase shall follow PEP 8 with type hints on all public methods | ✅ ruff + type hints |
+| NFR-13 | Configuration (PID gains, altitude thresholds, scoring weights) shall be externalised to YAML — no magic numbers in code | ✅ OmegaConf layered YAML |
 
 ---
 
@@ -430,37 +444,40 @@ The following metrics shall be computed automatically at mission end and logged 
 
 ## 13. Tech Stack Summary
 
-| Layer | Component | Tool / Library |
-|-------|-----------|----------------|
-| Simulation | City, traffic, physics | CARLA 0.9.16 (Town10HD) |
-| Suspect AI | Finite state machine | Python — custom FSM |
-| Alert system | Dispatch, CCTV pings, witness | Python event queue → WebSocket |
-| Detection | Aerial vehicle detection | YOLOv8m (Ultralytics) |
-| Tracking | Multi-object tracking | ByteTrack + Kalman filter |
-| Fingerprinting | Appearance matching | OpenCV HSV + custom scorer |
-| Depth / safety | Obstacle raycasting | CARLA `world.cast_ray()` |
-| Control | Drone PID controller | Python — custom PID class |
-| Player input | Manual drone control | Browser keyboard capture (Flask) |
-| Coordinate mapping | Pixel → world → GPS | NumPy + CARLA geolocation API |
-| Route prediction | Escape route graph | NetworkX + CARLA waypoint API |
-| Dashboard | Map, alerts, camera feed | Streamlit + Leaflet.js |
-| Communication | CARLA → dashboard | asyncio WebSocket |
-| Training | Model training | PyTorch fp16 + Ultralytics |
-| Experiment tracking | Metrics, loss curves | Weights & Biases (wandb) |
-| Environment | Containerised setup | Docker + Docker Compose |
+| Layer | Component | Tool / Library | Status |
+|-------|-----------|----------------|--------|
+| Simulation | City, traffic, physics | CARLA 0.9.16 (Town10HD) | ✅ |
+| Suspect AI | Finite state machine | Python — custom FSM | ⬜ Mission v0 uses TM autopilot with reckless knobs; FSM is future work |
+| Alert system | Dispatch, CCTV pings, witness | Python event queue → WebSocket | ⬜ |
+| Detection | Aerial vehicle detection | YOLOv8s (Ultralytics) per D-08 | ✅ |
+| Tracking | Multi-object tracking | ByteTrack + Kalman filter | ✅ |
+| Fingerprinting | Appearance matching | OpenCV HSV + custom scorer | 🔨 HSV in Mission v0; multi-attribute pending |
+| ~~Depth / safety~~ | ~~Obstacle raycasting~~ | ~~CARLA `world.cast_ray()`~~ | ⛔ Dropped per D-12 |
+| Control | Drone PID controller | Python — custom PID class | ⬜ Mission v0 positions from CARLA GT; PID is Mission v1a |
+| Player input | Manual drone control | Browser keyboard capture (Flask) | ⬜ |
+| Coordinate mapping | Pixel → world → GPS | NumPy + CARLA geolocation API | 🔨 world→pixel done; pixel→world pending |
+| Route prediction | Escape route graph | NetworkX + CARLA waypoint API | ⬜ |
+| Live view | Overlay feed | Flask MJPEG (current) | ✅ |
+| Dashboard | Map, alerts, camera feed | Streamlit + Leaflet.js (planned) | ⬜ per D-05 |
+| Communication | CARLA → dashboard | asyncio WebSocket (planned) | ⬜ MJPEG covers live view today |
+| Training | Model training | PyTorch fp16 + Ultralytics | ✅ |
+| ~~Experiment tracking~~ | ~~Metrics, loss curves~~ | ~~Weights & Biases (wandb)~~ | ⛔ Not used — local JSON metrics per run |
+| Environment | Containerised setup | Docker + Docker Compose | ✅ |
 
 ---
 
 ## 14. Milestones
 
-| Phase | Deliverable | Definition of Done |
-|-------|-------------|-------------------|
-| Environment | CARLA setup | Town10, 50 NPC vehicles, suspect spawned, aerial camera streaming frames, adaptive altitude working |
-| Detection | CV detection + tracking | YOLOv8m fine-tuned, ByteTrack integrated, suspect tracked at 80 km/h, mAP ≥ 85% |
-| Suspect AI | FSM + alerts | All 4 states running, dispatch/CCTV/witness events firing, parking lot pre-populated |
-| Re-ID | Fingerprinting + re-ID | Fingerprint built on first detection, occlusion recovery working, parking lot identification outputting confidence scores |
-| Dashboard | Dashboard + player controls | Streamlit dashboard live with map/feed/alerts, manual mode playable, scoring computed, debrief rendered |
-| Polish | Evaluation + packaging | Demo video recorded, README complete, evaluation metrics logged, Docker setup tested, architecture diagram included |
+Mirrors the live status in [`docs/progress.md`](progress.md). DoD text is historical (e.g. "adaptive altitude" under Environment was satisfied by exp 04 before D-12 dropped it; "YOLOv8m" under Detection was satisfied by YOLOv8s per D-08).
+
+| Phase | Status | Deliverable | Definition of Done |
+|-------|--------|-------------|-------------------|
+| Environment | ✅ | CARLA setup | Town10, 50 NPC vehicles, suspect spawned, aerial camera streaming frames |
+| Detection | ✅ | CV detection + tracking | YOLOv8s fine-tuned single-class (per D-09), ByteTrack integrated, suspect continuity max 0.996 (exp 10) |
+| Re-ID | 🔨 | Fingerprinting + re-ID | HSV fingerprint seeded + sticky-rebind shipped in Mission v0; multi-attribute + occlusion recovery + parking re-ID pending |
+| Suspect AI | ⬜ | FSM + alerts | All 4 states running, dispatch/CCTV/witness events firing, parking lot pre-populated |
+| Dashboard | ⬜ | Dashboard + player controls | Streamlit dashboard live with map/feed/alerts, manual mode playable, scoring computed, debrief rendered |
+| Polish | ⬜ | Evaluation + packaging | Demo video recorded, README complete (✅ in this PR), evaluation metrics logged, Docker setup tested, architecture diagram included |
 
 ---
 
