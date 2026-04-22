@@ -8,6 +8,7 @@ import pytest
 from skycop.cv.gt_projection import (
     build_camera_matrix,
     iou_xyxy,
+    pixel_to_world_on_ground,
     project_points,
     world_bbox_to_image,
 )
@@ -137,3 +138,97 @@ def test_iou_xyxy_half_overlap():
     b = (5.0, 0.0, 15.0, 10.0)
     # overlap 5x10=50, union = 100+100-50=150 → IoU = 50/150 ≈ 0.333
     assert abs(iou_xyxy(a, b) - 1.0 / 3.0) < 1e-6
+
+
+# ── pixel_to_world_on_ground ────────────────────────────────────────────
+
+
+def _camera_pitched_down(x: float, y: float, z: float, pitch_deg: float) -> np.ndarray:
+    """Camera-to-world transform in CARLA's left-handed frame.
+
+    Identity orientation puts camera X forward, Y right, Z up. Positive pitch
+    rotates nose up (Unreal convention); negative pitch rotates nose down.
+
+    Derivation of the LH Y-rotation:
+      x' =  cos(θ)·x − sin(θ)·z
+      z' =  sin(θ)·x + cos(θ)·z
+    At pitch = −90° the camera forward axis (X in local) maps to (0, 0, −1)
+    in world — straight down, as expected.
+    """
+    t = np.eye(4)
+    p = math.radians(pitch_deg)
+    c, s = math.cos(p), math.sin(p)
+    t[0, 0] = c
+    t[0, 2] = -s
+    t[2, 0] = s
+    t[2, 2] = c
+    t[:3, 3] = [x, y, z]
+    return t
+
+
+def test_pixel_to_world_nadir_projects_below_camera():
+    # Camera at (0, 0, 15) pitched straight down (−90°). The principal pixel
+    # projects to the point directly under the camera.
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(0.0, 0.0, 15.0, -90.0)
+    hit = pixel_to_world_on_ground(K[0, 2], K[1, 2], K, cam_to_world, ground_z=0.0)
+    assert hit is not None
+    assert abs(hit[0]) < 1e-6
+    assert abs(hit[1]) < 1e-6
+
+
+def test_pixel_to_world_tilted_projects_forward():
+    # Camera at (0, 0, 15) pitched −75° — optical axis is 15° off vertical,
+    # tilted forward. Principal pixel hits the ground ~15 * tan(15°) ≈ 4.02 m
+    # forward of the camera footprint (along camera +X = world +X here).
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(0.0, 0.0, 15.0, -75.0)
+    hit = pixel_to_world_on_ground(K[0, 2], K[1, 2], K, cam_to_world, ground_z=0.0)
+    assert hit is not None
+    expected_forward = 15.0 * math.tan(math.radians(15.0))
+    assert abs(hit[0] - expected_forward) < 0.05
+    assert abs(hit[1]) < 1e-6
+
+
+def test_pixel_to_world_offset_right_projects_right():
+    # Pitched down; a pixel to the right of principal should project to
+    # a world point with positive Y (CARLA "right").
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(0.0, 0.0, 15.0, -90.0)
+    hit = pixel_to_world_on_ground(K[0, 2] + 100, K[1, 2], K, cam_to_world, ground_z=0.0)
+    assert hit is not None
+    assert hit[1] > 0
+
+
+def test_pixel_to_world_round_trip_through_world_bbox_to_image():
+    # Project a world point to pixels (via project_points), then pixel-to-world
+    # on the ground plane should recover it.
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(10.0, 5.0, 25.0, -75.0)
+    world_to_cam = np.linalg.inv(cam_to_world)
+
+    truth_world = np.array([[12.0, 3.0, 0.0]])   # point on ground
+    uv = project_points(truth_world, world_to_cam, K)
+    assert not np.isnan(uv).any()
+
+    hit = pixel_to_world_on_ground(float(uv[0, 0]), float(uv[0, 1]), K, cam_to_world, ground_z=0.0)
+    assert hit is not None
+    assert abs(hit[0] - 12.0) < 0.01
+    assert abs(hit[1] - 3.0) < 0.01
+
+
+def test_pixel_to_world_ray_parallel_to_ground_returns_none():
+    # Camera looking horizontally (pitch 0). Rays don't hit ground above camera altitude.
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(0.0, 0.0, 15.0, 0.0)
+    # Principal pixel — ray is perfectly horizontal, never hits ground.
+    hit = pixel_to_world_on_ground(K[0, 2], K[1, 2], K, cam_to_world, ground_z=0.0)
+    assert hit is None
+
+
+def test_pixel_to_world_ray_going_up_returns_none():
+    # Camera pitched up (+30°), principal pixel → ray goes up away from ground.
+    K = build_camera_matrix(1280, 720, 90.0)
+    cam_to_world = _camera_pitched_down(0.0, 0.0, 15.0, 30.0)
+    hit = pixel_to_world_on_ground(K[0, 2], K[1, 2], K, cam_to_world, ground_z=0.0)
+    assert hit is None

@@ -11,11 +11,13 @@ mission:
   mjpeg_port: 5000
 
   # Seed mode:
-  #   "fixed"  — use cfg.seed verbatim (NFR-07 reproducibility; default).
   #   "random" — derive a fresh seed per run from time.time_ns(); the chosen
   #              seed is logged and recorded in summary.json so any run can be
-  #              reproduced later by pinning cfg.seed to that value.
-  seed_mode: fixed
+  #              reproduced later by pinning cfg.seed to that value. Default
+  #              for demo variety — different suspect / spawn / weather
+  #              interactions each run.
+  #   "fixed"  — use cfg.seed verbatim (NFR-07 strict reproducibility).
+  seed_mode: random
 
   # Correctness gate — IoU between the fingerprint-locked tracker box and
   # the CARLA-GT projected suspect box, averaged over detected frames.

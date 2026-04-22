@@ -402,6 +402,44 @@ Only **7 obstacles** cross the drone's 10–20 m flight band AND sit within 8 m 
 
 **Restoration path.** If adaptive altitude becomes necessary (new map, new mission shape), start from data: query the target map's geometry, classify which structures actually sit over drivable roads, and design a trigger against *those* specific classes — not a generic "building within 20 m" proxy.
 
+### D-13 · Flight control: per-axis PID with target-velocity feedforward, no gimbal PID in v1a
+
+**Status:** Decided · **Date:** 2026-04-22
+
+**Context.** Mission v0 drove the camera transform from `suspect.get_transform()` directly — omniscient positioning that sidestepped the entire control-loop question. PR 2a (Mission v1a) replaces that with a tracker-driven closed loop so fingerprint re-identification becomes load-bearing instead of decorative.
+
+**Decisions.**
+
+1. **Two decoupled per-axis PIDs (world X, world Y).** One coupled multi-axis PID would add no expressive power and hides per-axis tuning. Scalar PIDs per axis are simpler, unit-testable in isolation, and match the physical DOFs of a drone moving in a horizontal plane. Altitude is pinned per D-12 — no Z PID.
+
+2. **Velocity feedforward is mandatory, not optional.** Position-only PID has steady-state distance ≈ `target_speed / Kp`. At pursuit speed (22 m/s) and reasonable Kp (~1.0), that's a 22 m lag — unusable. The flight PID adds the target's estimated world-velocity to the PID output: `v_cmd = Kp·error + Kd·d(error)/dt + Ki·∫error + v_target_est`. Target velocity comes from `TargetStateTracker`, a 3-sample rolling finite-difference over target world positions. Configurable multiplier (`control.feedforward.scale`) lets us disable FF for debugging.
+
+3. **Pixel → world via ray/ground-plane intersection.** Each tick, the locked track's bbox centre pixel is projected to a world point via `pixel_to_world_on_ground` (new function in `skycop/cv/gt_projection.py`). Closed-form, handles any camera pitch/yaw, no small-angle approximations. The ground plane is at `control.ground_plane.z = 0.0` for v1a — Town10HD roads are approximately flat; a per-run road-height estimate is future work.
+
+4. **No gimbal PID in v1a (PR 2b deferred).** Camera yaw still follows suspect yaw via GT (the choice from PR #33). A proper gimbal PID would require a second control loop that yaws the camera to centre the bbox horizontally in image, decoupled from drone body motion. That interacts with the flight PID — if both fight over the same image error, classic two-loop instability. The scope-split keeps PR 2a's behaviour observable: if the video shows the body pursues but the suspect weaves side-to-side in frame on aggressive turns, we add the gimbal PID in PR 2b. If the video looks fine, we don't build what we don't need.
+
+5. **Hold-last-known on track loss (SIM-17).** When `locked_track_id` is absent for `control.hold_last_known.trigger_ticks` consecutive ticks, freeze the drone pose and reset the PID integrators and target-state buffer. This prevents integrator windup during blackout and eliminates drift. The drone stays hovering until the tracker re-locks. A search pattern (CV-22..25) is a separate future unit.
+
+6. **Cold-start cheats for v1a.** The drone is spawned at the suspect's initial position, so the first tick has zero pursuit error and the flight PID warms up gracefully. This deliberately skips the dispatch bootstrap problem (FR-03) — turning "last-known location + vehicle description" into an initial drone position is a standalone unit.
+
+**Metric panel (PR 2a).** Three primaries reported in `summary.json`, informed by HOTA's orthogonal-axis philosophy and visual-servoing's dual-metric convention:
+
+- `id_accuracy` — fraction of GT-visible frames where `locked_track_id` matches the GT-suspect-corresponding track (pure CV quality).
+- `track_distance_mean_m` / `track_distance_p95_m` — world-space drone→suspect distance, mean + 95th percentile (pure control quality).
+- `in_frame_rate` — fraction of ticks where the GT bbox falls fully inside the image (framing consequence of the other two).
+
+Plus a per-tick `trace.jsonl` (`drone_to_suspect_m`, `center_offset_px`, `velocity_cmd_m_s`, `locked_track_id`, `gt_matched_track_id`) for post-hoc diagnosis.
+
+**Legacy metric** (`legacy_iou_correctness` — Mission v0's IoU-vs-GT) is kept in the summary for continuity but is **not** the pass bar; it conflated CV and control quality into one number.
+
+**Gains starting point.** Initial guess: `Kp = 0.8`, `Ki = 0.0`, `Kd = 0.15`, output clamp 20 m/s per axis. Tuned by watching the live mission; any iteration lands as a config-only follow-up, not a code change.
+
+**Known cheats documented here:**
+
+- Drone cold-starts at suspect's initial XY (FR-03 dispatch bootstrap separate).
+- Ground plane assumed flat at `z = 0.0` (adequate for Town10HD roads; per-run estimation is future work).
+- Camera yaw still follows suspect yaw via GT (gimbal PID is PR 2b).
+
 ---
 
 ## 13. Open Questions
