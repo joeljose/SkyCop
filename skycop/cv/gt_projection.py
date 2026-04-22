@@ -83,6 +83,57 @@ def world_bbox_to_image(
     return (x1, y1, x2, y2)
 
 
+def pixel_to_world_on_ground(
+    u: float,
+    v: float,
+    K: np.ndarray,
+    camera_to_world: np.ndarray,
+    ground_z: float = 0.0,
+) -> tuple[float, float] | None:
+    """Inverse of ``project_points`` restricted to a ground plane.
+
+    Shoot a ray from the camera origin through pixel ``(u, v)`` and intersect
+    it with the plane ``z = ground_z``. Returns the world-space ``(x, y)`` of
+    the intersection, or ``None`` if the ray doesn't hit (parallel to the
+    plane, or intersection behind the camera).
+
+    This is the closed-form inverse used by the flight PID — given the locked
+    track's bbox centre pixel, it recovers the suspect's world position
+    without a small-angle approximation or altitude-proxy shortcut. Works at
+    any camera pitch/yaw/altitude.
+
+    ``camera_to_world`` is CARLA's ``camera.get_transform().get_matrix()``
+    (4×4). Intrinsics ``K`` come from ``build_camera_matrix``.
+    """
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+
+    # Ray direction in standard CV camera frame (X right, Y down, Z forward).
+    d_cv = np.array([(u - cx) / fx, (v - cy) / fy, 1.0], dtype=np.float64)
+
+    # Undo the UE4 → CV remap from ``project_points``:
+    #   cv_x =  cam_y     →  cam_y =  cv_x
+    #   cv_y = -cam_z     →  cam_z = -cv_y
+    #   cv_z =  cam_x     →  cam_x =  cv_z
+    d_ue4 = np.array([d_cv[2], d_cv[0], -d_cv[1]], dtype=np.float64)
+
+    # Rotate the direction into world frame.
+    R = camera_to_world[:3, :3]
+    d_world = R @ d_ue4
+
+    # Ray origin = camera position in world.
+    o_world = camera_to_world[:3, 3]
+
+    # Intersect with z = ground_z.
+    if abs(d_world[2]) < 1e-9:
+        return None  # ray parallel to ground plane
+    t = (ground_z - o_world[2]) / d_world[2]
+    if t <= 0.0:
+        return None  # intersection behind the camera
+    p = o_world + t * d_world
+    return (float(p[0]), float(p[1]))
+
+
 def iou_xyxy(
     a: tuple[float, float, float, float],
     b: tuple[float, float, float, float],

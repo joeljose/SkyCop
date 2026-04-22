@@ -1,0 +1,40 @@
+# Flight-controller configuration — Mission v1a (PR 2a).
+# Layered on top of configs/default.yaml + mission.yaml.
+#
+# See docs/design.md D-13 for the control architecture and why each knob
+# is shaped this way.
+
+control:
+  # Per-axis (world X, world Y) flight PID. Kp drives steady-state correction;
+  # Ki is zero by default to avoid integrator windup on fast-changing targets.
+  # Kd damps overshoot on step-like transitions (suspect stops at lights).
+  flight:
+    Kp: 0.8
+    Ki: 0.0
+    Kd: 0.15
+    output_clamp_mps: 20.0    # max commanded velocity per axis (m/s)
+    integral_clamp: 5.0       # absolute cap on integrator state
+
+  # Velocity feedforward settings. Required for pursuit at any meaningful
+  # speed — position-only PID has steady-state lag = v_target / Kp.
+  feedforward:
+    enabled: true
+    # Multiplier on the target-velocity estimate (1.0 = full feedforward).
+    # Lower values are useful for debugging the P gain in isolation.
+    scale: 1.0
+    # Rolling window over which target velocity is estimated by finite
+    # difference. 3 samples at 20 FPS = 150 ms of history — good tradeoff
+    # between smoothing and responsiveness.
+    window_size: 3
+
+  # Hold-last-known behaviour (SIM-17). When the locked track is absent for
+  # this many consecutive ticks, freeze the commanded velocity at zero and
+  # drop the PID integrator state. Drone hovers at last position, no drift.
+  hold_last_known:
+    trigger_ticks: 3
+
+  # Ground-plane assumption for pixel → world inverse projection.
+  # In Town10HD roads are ~flat at z ≈ 0 within a few metres — good enough
+  # for v1a. A per-run road-height estimate is future work.
+  ground_plane:
+    z: 0.0
