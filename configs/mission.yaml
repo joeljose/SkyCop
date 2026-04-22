@@ -3,20 +3,12 @@
 
 mission:
   duration_s: 60.0             # fixed-duration pursuit for v0 (FSM deferred)
-  altitude_m: 15.0             # SIM-11 open-road baseline; v0 pins altitude (bypasses adaptive controller)
+  altitude_m: 15.0             # SIM-11 — pinned baseline. Adaptive altitude dropped per D-12.
   weather: ClearNoon           # SIM-06 — one of ClearNoon / CloudyNight / WetCloudyNoon
   output_root: /app/output/mission
   video_fps: 20                # matches carla.fixed_delta_seconds = 0.05
   save_video: false            # default false — live view at http://localhost:5000 is the primary inspection path
   mjpeg_port: 5000
-
-  # Control mode:
-  #   "gt"       — omniscient dev mode (current default). Drone altitude pinned
-  #                to `altitude_m`; XY snaps to suspect's CARLA GT transform.
-  #   "adaptive" — drone Z driven by `AdaptiveAltitudeController` (SIM-11..14).
-  #                XY still from suspect GT. Measurement mode: writes
-  #                altitude_trace.jsonl per run so we can inspect actual Z behaviour.
-  control_mode: gt
 
   # Seed mode:
   #   "fixed"  — use cfg.seed verbatim (NFR-07 reproducibility; default).

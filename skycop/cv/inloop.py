@@ -18,7 +18,6 @@ import carla
 import cv2
 import numpy as np
 
-from skycop.control import AdaptiveAltitudeController, AltitudeConfig
 from skycop.cv.inference import Detection, YoloDetector
 from skycop.cv.vehicle_classes import CLASS_NAMES
 from skycop.dashboard import MJPEGServer
@@ -146,7 +145,8 @@ def measure_live_pursuit(
             )
             actors.append(camera)
 
-            altitude_ctrl = AdaptiveAltitudeController(world, AltitudeConfig(**dict(cfg.altitude)))
+            # Altitude pinned per D-12 — adaptive altitude controller dropped.
+            pinned_altitude = float(cfg.camera.altitude)
 
             log.info("live pursuit %.0fs with detection overlay…", duration_s)
             t0 = time.perf_counter()
@@ -156,9 +156,8 @@ def measure_live_pursuit(
             while True:
                 frame_start = time.perf_counter()
                 loc = suspect.get_transform().location
-                target_z, _ = altitude_ctrl.step(loc.x, loc.y)
                 camera.set_transform(carla.Transform(
-                    carla.Location(loc.x, loc.y, target_z),
+                    carla.Location(loc.x, loc.y, loc.z + pinned_altitude),
                     carla.Rotation(pitch=cfg.camera.pitch, yaw=0, roll=0),
                 ))
 

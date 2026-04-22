@@ -168,7 +168,7 @@ def save_metrics_atomic(data: dict, out_path: Path) -> None:
 
 def main():
     setup_logging()
-    cfg = load("default", "altitude", "training_dataset", "training", "tracking")
+    cfg = load("default", "training_dataset", "training", "tracking")
 
     # 1. Ensure holdout exists
     holdout = ensure_tracking_holdout(cfg)

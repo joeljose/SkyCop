@@ -237,14 +237,16 @@ When occlusion recovery fails (no candidate above threshold within the predicted
 | SIM-09 | Camera shall implement simulated noise: motion blur proportional to speed, vibration jitter (±2px), atmospheric haze at altitude |
 | SIM-10 | System shall support both spectator camera (visual preview) and programmatic RGB sensor (CV pipeline input) simultaneously |
 
-### 5.3 Adaptive Altitude Control
+### 5.3 Altitude Control
 
-| ID | Requirement |
-|----|-------------|
-| SIM-11 | Drone camera shall target 15m altitude on open roads with no nearby buildings |
-| SIM-12 | Drone camera shall climb to 40m when lateral clearance raycasts detect building geometry within 20m |
-| SIM-13 | Altitude shall be hard-clamped between 10m (floor) and 60m (ceiling) at all times |
-| SIM-14 | System shall perform downward raycasting to detect rooftop height below camera and maintain minimum 12m clearance above tallest structure |
+> **⛔ SIM-11 / SIM-12 / SIM-14 superseded.** Adaptive altitude was dropped in April 2026 after empirical audit of Town10HD geometry showed no over-road obstacles at the 10–20 m flight band. See `docs/design.md` D-12 for full rationale. Current behaviour: altitude pinned at `mission.altitude_m` (15 m default).
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| SIM-11 | ~~Drone camera shall target 15m altitude on open roads with no nearby buildings~~ | ⛔ Superseded — pinned at `mission.altitude_m`; see D-12 |
+| SIM-12 | ~~Drone camera shall climb to 40m when lateral clearance raycasts detect building geometry within 20m~~ | ⛔ Superseded — lateral-building signal is always on above a city road and doesn't correspond to collision risk; see D-12 |
+| SIM-13 | Altitude shall be hard-clamped between 10m (floor) and 60m (ceiling) at all times | 📐 Documented envelope; no active clamping logic because altitude is constant |
+| SIM-14 | ~~System shall perform downward raycasting to detect rooftop height below camera and maintain minimum 12m clearance above tallest structure~~ | ⛔ Superseded — road-following guarantees the drone is over roads, never over rooftops; see D-12 |
 
 ### 5.4 PID Drone Controller
 

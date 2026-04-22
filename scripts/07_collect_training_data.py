@@ -182,7 +182,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
-    cfg = load("default", "altitude", "training_dataset")
+    cfg = load("default", "training_dataset")
 
     if args.single_run:
         _single_run(args, cfg)

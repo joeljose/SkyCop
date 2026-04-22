@@ -15,7 +15,7 @@ def tmp_configs(tmp_path, monkeypatch):
         "seed: 1\nscene:\n  npc_count: 10\ncamera:\n  fov: 90\n"
     )
     (tmp_path / "overlay.yaml").write_text(
-        "scene:\n  npc_count: 50\naltitude:\n  min_m: 10\n"
+        "scene:\n  npc_count: 50\ndetector:\n  conf_threshold: 0.25\n"
     )
     monkeypatch.setattr(skycop_config, "CONFIGS_ROOT", tmp_path)
     return tmp_path
@@ -29,9 +29,9 @@ def test_single_config_loads(tmp_configs):
 
 def test_later_file_overrides_earlier(tmp_configs):
     cfg = skycop_config.load("base", "overlay")
-    assert cfg.scene.npc_count == 50        # overlay wins
-    assert cfg.camera.fov == 90             # base survives
-    assert cfg.altitude.min_m == 10         # overlay-only key present
+    assert cfg.scene.npc_count == 50             # overlay wins
+    assert cfg.camera.fov == 90                  # base survives
+    assert cfg.detector.conf_threshold == 0.25   # overlay-only key present
 
 
 def test_dotlist_overrides_win_over_files(tmp_configs):
@@ -57,7 +57,6 @@ def test_real_default_config_loads():
     if not real_root.exists():
         pytest.skip("not inside container or configs missing")
     from skycop.config import load as real_load
-    cfg = real_load("default", "altitude")
+    cfg = real_load("default", "detector")
     assert cfg.seed == 42
-    assert cfg.altitude.min_m == 10.0
-    assert cfg.altitude.max_m == 60.0
+    assert cfg.detector.conf_threshold == 0.25

@@ -34,7 +34,6 @@ import carla
 import cv2
 import numpy as np
 
-from skycop.control import AdaptiveAltitudeController, AltitudeConfig
 from skycop.cv.capture import weather_preset
 from skycop.cv.fingerprint import Fingerprint, extract, score
 from skycop.cv.gt_projection import build_camera_matrix, iou_xyxy, world_bbox_to_image
@@ -166,7 +165,6 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     weather_name = str(mission_cfg.weather)
     iou_gate = float(mission_cfg.iou_correctness_threshold)
     save_video = bool(mission_cfg.get("save_video", False))
-    control_mode = str(mission_cfg.get("control_mode", "gt"))
     seed_mode = str(mission_cfg.get("seed_mode", "fixed"))
     fp_cfg = mission_cfg.fingerprint
     rebind_threshold = float(fp_cfg.score_threshold_rebind)
@@ -190,7 +188,6 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
     run_dir.mkdir(parents=True, exist_ok=True)
     video_path = run_dir / "mission.mp4"
     summary_path = run_dir / "summary.json"
-    altitude_trace_path = run_dir / "altitude_trace.jsonl"
 
     weights_path = Path(cfg.training.project) / cfg.training.name / "weights" / "best.pt"
     if not weights_path.exists():
@@ -245,18 +242,7 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
                 fp16=bool(cfg.training.half),
             )
 
-            altitude_ctrl: AdaptiveAltitudeController | None = None
-            if control_mode == "adaptive":
-                altitude_ctrl = AdaptiveAltitudeController(
-                    world,
-                    AltitudeConfig(**dict(cfg.altitude)),
-                    trace_path=altitude_trace_path,
-                )
-                log.info("control_mode=adaptive — altitude from AdaptiveAltitudeController; trace → %s", altitude_trace_path)
-            elif control_mode == "gt":
-                log.info("control_mode=gt — altitude pinned to mission.altitude_m=%.1fm", altitude_m)
-            else:
-                raise ValueError(f"control_mode must be 'gt' or 'adaptive', got {control_mode!r}")
+            log.info("altitude pinned to mission.altitude_m=%.1fm (adaptive controller dropped per D-12)", altitude_m)
 
             if save_video:
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -287,13 +273,8 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
             for tick in range(target_ticks):
                 suspect_tf = suspect.get_transform()
                 loc = suspect_tf.location
-                if altitude_ctrl is not None:
-                    target_z, _ = altitude_ctrl.step(loc.x, loc.y)
-                    drone_z = target_z
-                else:
-                    drone_z = loc.z + altitude_m
                 pose = carla.Transform(
-                    carla.Location(loc.x, loc.y, drone_z),
+                    carla.Location(loc.x, loc.y, loc.z + altitude_m),
                     carla.Rotation(
                         pitch=float(cfg.camera.pitch),
                         yaw=float(suspect_tf.rotation.yaw),
@@ -405,10 +386,6 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
             with open(summary_path, "w") as f:
                 payload = asdict(result)
                 payload["seed_mode"] = seed_mode
-                payload["control_mode"] = control_mode
-                payload["altitude_trace_path"] = (
-                    str(altitude_trace_path) if altitude_ctrl is not None else None
-                )
                 payload["fingerprint"] = {
                     "hsv_bins": hsv_bins,
                     "score_threshold_rebind": rebind_threshold,
@@ -422,6 +399,4 @@ def run_mission(cfg, mjpeg_server: MJPEGServer | None = None) -> MissionResult:
         finally:
             if video_writer is not None:
                 video_writer.release()
-            if altitude_ctrl is not None:
-                altitude_ctrl.close()
             teardown_pursuit(client, world, tm, actors)
